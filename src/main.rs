@@ -1,3 +1,4 @@
+use clap::Parser;
 use crossterm::event::{
     KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags, poll, read,
 };
@@ -6,7 +7,16 @@ use crossterm::{self, execute};
 use std::io::{Write, stdout};
 use std::time::Duration;
 
+#[derive(clap::Parser)]
+struct Args {
+    /// Words per minute
+    #[clap(short, long, default_value_t = 10)]
+    wpm: u64,
+}
+
 fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+
     enable_raw_mode()?;
 
     #[cfg(not(windows))]
@@ -53,7 +63,7 @@ fn main() -> anyhow::Result<()> {
         ('0', "-----"),
         ('.', ".-.-.-"),
     ];
-    let wpm = 5.0;
+    let wpm = args.wpm as f64;
 
     let tic = (60.0 / (50.0 * wpm) * 1000.0) as u64;
 
@@ -76,7 +86,7 @@ fn main() -> anyhow::Result<()> {
                                 .modifiers
                                 .contains(crossterm::event::KeyModifiers::CONTROL))
                     {
-                        print!("\nExiting! Bye!\n");
+                        println!("^C");
                         stdout().flush()?;
                         break;
                     }
@@ -85,7 +95,8 @@ fn main() -> anyhow::Result<()> {
                         text.clear();
                         execute!(
                             stdout(),
-                            crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
+                            crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine),
+                            crossterm::cursor::MoveToColumn(0)
                         )?;
                     }
                     if kev.is_press() {
@@ -110,7 +121,7 @@ fn main() -> anyhow::Result<()> {
                 continue;
             }
             empties += 1;
-            if empties == 1 {
+            if empties == 3 {
                 for &(ch, code) in &abc {
                     if code.len() == buffer.len() {
                         let mut matched = true;
@@ -132,6 +143,9 @@ fn main() -> anyhow::Result<()> {
                 buffer.clear();
             }
             if empties == 7 {
+                if text.is_empty() {
+                    continue;
+                }
                 buffer.clear();
                 text.push(' ');
                 print!(" ");
