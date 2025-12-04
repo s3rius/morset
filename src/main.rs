@@ -19,10 +19,12 @@ struct Args {
     // Volume in percentage 1-100
     #[clap(short, long, default_value_t = 11)]
     volume: u8,
-
     /// Frequency in Hz
     #[clap(short, long, default_value_t = 1200)]
     frequency: u32,
+    /// Use telegraph keying pedals
+    #[clap(short, long, default_value_t = false)]
+    pedals: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -35,6 +37,13 @@ fn main() -> anyhow::Result<()> {
     }
     sink.as_ref()
         .map(|s| s.set_volume(args.volume as f32 / 100.0));
+
+    eprintln!("Welcome to Morse Code Translator!");
+    if !args.pedals {
+        eprintln!("Press and hold any key to send Morse code. Esc or ^C to exit.");
+    } else {
+        eprintln!("Press `[` for dot and `]` for dash. Esc or ^C to exit.");
+    }
 
     enable_raw_mode()?;
 
@@ -126,25 +135,48 @@ fn main() -> anyhow::Result<()> {
                         )?;
                         continue;
                     }
-                    if kev.is_press() {
-                        if holding {
-                            continue;
+                    if !args.pedals {
+                        if kev.is_press() {
+                            if holding {
+                                continue;
+                            }
+                            holding = true;
+                            sink.as_ref()
+                                .map(|s| s.append(SineWave::new(args.frequency as f32)));
+                            last_press = std::time::Instant::now();
                         }
-                        holding = true;
-                        sink.as_ref()
-                            .map(|s| s.append(SineWave::new(args.frequency as f32)));
-                        last_press = std::time::Instant::now();
+                        if kev.is_release() {
+                            sink.as_ref().map(|s| s.stop());
+                            holding = false;
+                            let now = std::time::Instant::now();
+                            let passed = now.duration_since(last_press);
+                            let mut is_dit = false;
+                            if passed.as_millis() < tic as u128 {
+                                is_dit = true;
+                            }
+                            buffer.push(is_dit);
+                        }
                     }
-                    if kev.is_release() {
-                        sink.as_ref().map(|s| s.stop());
-                        holding = false;
-                        let now = std::time::Instant::now();
-                        let passed = now.duration_since(last_press);
-                        let mut is_dit = false;
-                        if passed.as_millis() < tic as u128 {
-                            is_dit = true;
+                    if args.pedals {
+                        if kev.is_press() {
+                            match kev.code {
+                                crossterm::event::KeyCode::Char('[') => {
+                                    sink.as_ref()
+                                        .map(|s| s.append(SineWave::new(args.frequency as f32)));
+                                    std::thread::sleep(Duration::from_millis(tic));
+                                    sink.as_ref().map(|s| s.stop());
+                                    buffer.push(true);
+                                }
+                                crossterm::event::KeyCode::Char(']') => {
+                                    sink.as_ref()
+                                        .map(|s| s.append(SineWave::new(args.frequency as f32)));
+                                    std::thread::sleep(Duration::from_millis(tic * 3));
+                                    sink.as_ref().map(|s| s.stop());
+                                    buffer.push(false);
+                                }
+                                _ => {}
+                            }
                         }
-                        buffer.push(is_dit);
                     }
                 }
                 _ => {}
