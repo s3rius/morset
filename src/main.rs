@@ -27,8 +27,8 @@ struct Args {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-
-    let stream = rodio::OutputStreamBuilder::open_default_stream().ok();
+    let mut stream = rodio::OutputStreamBuilder::open_default_stream().ok();
+    stream.as_mut().map(|s| s.log_on_drop(false));
     let mut sink = stream.as_ref().map(|s| rodio::Sink::connect_new(s.mixer()));
     if args.silent {
         sink.take();
@@ -113,7 +113,6 @@ fn main() -> anyhow::Result<()> {
                                 .modifiers
                                 .contains(crossterm::event::KeyModifiers::CONTROL))
                     {
-                        println!("^C");
                         stdout().flush()?;
                         break;
                     }
@@ -184,6 +183,8 @@ fn main() -> anyhow::Result<()> {
             }
         }
     }
+
+    sink.as_ref().map(|s| s.stop());
 
     #[cfg(not(windows))]
     execute!(stdout(), PopKeyboardEnhancementFlags)?;
