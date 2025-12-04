@@ -19,6 +19,10 @@ struct Args {
     // Volume in percentage 1-100
     #[clap(short, long, default_value_t = 11)]
     volume: u8,
+
+    /// Frequency in Hz
+    #[clap(short, long, default_value_t = 1200)]
+    frequency: u32,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -128,7 +132,8 @@ fn main() -> anyhow::Result<()> {
                             continue;
                         }
                         holding = true;
-                        sink.as_ref().map(|s| s.append(SineWave::new(600.0)));
+                        sink.as_ref()
+                            .map(|s| s.append(SineWave::new(args.frequency as f32)));
                         last_press = std::time::Instant::now();
                     }
                     if kev.is_release() {
