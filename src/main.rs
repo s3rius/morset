@@ -174,11 +174,9 @@ fn main() -> anyhow::Result<()> {
                     .collect::<String>();
 
                 for &(ch, code) in &constants::ABC {
-                    if code.len() == buffer_chrs.len() {
-                        if code == buffer_chrs {
-                            text.push(ch);
-                            break;
-                        }
+                    if code == buffer_chrs {
+                        text.push(ch);
+                        break;
                     }
                 }
                 buffer.clear();
@@ -195,6 +193,14 @@ fn main() -> anyhow::Result<()> {
     }
 
     sink.as_ref().map(|s| s.stop());
+
+    execute!(
+        stdout(),
+        crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
+        crossterm::cursor::MoveTo(0, 0)
+    )?;
+    println!("{text}");
+    stdout().flush()?;
 
     #[cfg(not(windows))]
     execute!(stdout(), PopKeyboardEnhancementFlags)?;
