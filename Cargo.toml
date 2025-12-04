@@ -7,3 +7,4 @@ edition = "2024"
 anyhow = "1.0.100"
 clap = { version = "4.5.53", features = ["derive"] }
 crossterm = "0.29.0"
+rodio = { version = "0.21.1", default-features = false, features = ["playback"] }
