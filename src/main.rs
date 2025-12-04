@@ -5,7 +5,7 @@ use crossterm::event::{
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::{self, execute};
 use rodio::source::SineWave;
-use std::io::{Write, stderr, stdout};
+use std::io::{Write, stdout};
 use std::time::Duration;
 
 mod constants;
