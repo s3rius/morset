@@ -5,8 +5,10 @@ use crossterm::event::{
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::{self, execute};
 use rodio::source::SineWave;
-use std::io::{Write, stdout};
+use std::io::{Write, stderr, stdout};
 use std::time::Duration;
+
+mod constants;
 
 #[derive(clap::Parser)]
 struct Args {
@@ -22,9 +24,9 @@ struct Args {
     /// Frequency in Hz
     #[clap(short, long, default_value_t = 1200)]
     frequency: u32,
-    /// Use telegraph keying pedals
+    /// Use telegraph keying paddles emulation
     #[clap(short, long, default_value_t = false)]
-    pedals: bool,
+    paddle: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -38,11 +40,11 @@ fn main() -> anyhow::Result<()> {
     sink.as_ref()
         .map(|s| s.set_volume(args.volume as f32 / 100.0));
 
-    eprintln!("Welcome to Morse Code Translator!");
-    if !args.pedals {
-        eprintln!("Press and hold any key to send Morse code. Esc or ^C to exit.");
+    println!("Welcome to Morse Code Translator!");
+    if args.paddle {
+        println!("Press `[` for dot and `]` for dash. Esc or ^C to exit.");
     } else {
-        eprintln!("Press `[` for dot and `]` for dash. Esc or ^C to exit.");
+        println!("Press and hold any key to send Morse code. Esc or ^C to exit.");
     }
 
     enable_raw_mode()?;
@@ -52,53 +54,6 @@ fn main() -> anyhow::Result<()> {
         stdout(),
         PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::REPORT_EVENT_TYPES)
     )?;
-    let abc = [
-        ('A', ".-"),
-        ('B', "-..."),
-        ('C', "-.-."),
-        ('D', "-.."),
-        ('E', "."),
-        ('F', "..-."),
-        ('G', "--."),
-        ('H', "...."),
-        ('I', ".."),
-        ('J', ".---"),
-        ('K', "-.-"),
-        ('L', ".-.."),
-        ('M', "--"),
-        ('N', "-."),
-        ('O', "---"),
-        ('P', ".--."),
-        ('Q', "--.-"),
-        ('R', ".-."),
-        ('S', "..."),
-        ('T', "-"),
-        ('U', "..-"),
-        ('V', "...-"),
-        ('W', ".--"),
-        ('X', "-..-"),
-        ('Y', "-.--"),
-        ('Z', "--.."),
-        ('1', ".----"),
-        ('2', "..---"),
-        ('3', "...--"),
-        ('4', "....-"),
-        ('5', "....."),
-        ('6', "_...."),
-        ('7', "--..."),
-        ('8', "---.."),
-        ('9', "----."),
-        ('0', "-----"),
-        ('.', ".-.-.-"),
-        ('!', "-.-.--"),
-        ('\'', ".----."),
-        (',', "--..--"),
-        ('?', "..--.."),
-        ('/', "-..-."),
-        ('-', "-....-"),
-        ('(', "-.--.-"),
-        (')', "-.--."),
-    ];
     let wpm = args.wpm as f64;
 
     let tic = (60.0 / (50.0 * wpm) * 1000.0) as u64;
@@ -108,78 +63,104 @@ fn main() -> anyhow::Result<()> {
     let mut text = String::new();
     let mut buffer = Vec::<bool>::new();
     let mut empties = 0;
+    let mut holds = 0;
     let mut holding = false;
 
     loop {
+        execute!(
+            stdout(),
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
+            crossterm::cursor::MoveTo(0, 0)
+        )?;
+        if holding {
+            for i in 0..7 {
+                if i < holds || holds > 7 {
+                    print!("●");
+                } else {
+                    print!(" ");
+                }
+            }
+        } else {
+            for i in 0..7 {
+                if i < empties || empties > 7 {
+                    print!("●");
+                } else {
+                    print!(" ");
+                }
+            }
+        }
+        println!();
+        let chars = buffer
+            .iter()
+            .map(|&b| if b { '.' } else { '-' })
+            .collect::<String>();
+        execute!(stdout(), crossterm::cursor::MoveToColumn(0))?;
+        print!("{text}{chars}");
+        stdout().flush()?;
         if poll(Duration::from_millis(tic))? {
             empties = 0;
             let event = read()?;
-            match event {
-                crossterm::event::Event::Key(kev) => {
-                    if kev.code.is_esc()
-                        || (kev.code.is_char('c')
-                            && kev
-                                .modifiers
-                                .contains(crossterm::event::KeyModifiers::CONTROL))
-                    {
-                        stdout().flush()?;
-                        break;
-                    }
-                    if kev.code.is_backspace() {
-                        buffer.clear();
-                        text.clear();
-                        execute!(
-                            stdout(),
-                            crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine),
-                            crossterm::cursor::MoveToColumn(0)
-                        )?;
-                        continue;
-                    }
-                    if !args.pedals {
-                        if kev.is_press() {
-                            if holding {
-                                continue;
-                            }
-                            holding = true;
+            let Some(kev) = event.as_key_event() else {
+                continue;
+            };
+            if kev.code.is_esc()
+                || (kev.code.is_char('c')
+                    && kev
+                        .modifiers
+                        .contains(crossterm::event::KeyModifiers::CONTROL))
+            {
+                stdout().flush()?;
+                break;
+            }
+            if kev.code.is_backspace() {
+                buffer.clear();
+                text.clear();
+                continue;
+            }
+
+            if args.paddle {
+                if kev.is_press() {
+                    match kev.code {
+                        crossterm::event::KeyCode::Char('[') => {
                             sink.as_ref()
                                 .map(|s| s.append(SineWave::new(args.frequency as f32)));
-                            last_press = std::time::Instant::now();
-                        }
-                        if kev.is_release() {
+                            std::thread::sleep(Duration::from_millis(tic));
                             sink.as_ref().map(|s| s.stop());
-                            holding = false;
-                            let now = std::time::Instant::now();
-                            let passed = now.duration_since(last_press);
-                            let mut is_dit = false;
-                            if passed.as_millis() < tic as u128 {
-                                is_dit = true;
-                            }
-                            buffer.push(is_dit);
+                            buffer.push(true);
                         }
-                    }
-                    if args.pedals {
-                        if kev.is_press() {
-                            match kev.code {
-                                crossterm::event::KeyCode::Char('[') => {
-                                    sink.as_ref()
-                                        .map(|s| s.append(SineWave::new(args.frequency as f32)));
-                                    std::thread::sleep(Duration::from_millis(tic));
-                                    sink.as_ref().map(|s| s.stop());
-                                    buffer.push(true);
-                                }
-                                crossterm::event::KeyCode::Char(']') => {
-                                    sink.as_ref()
-                                        .map(|s| s.append(SineWave::new(args.frequency as f32)));
-                                    std::thread::sleep(Duration::from_millis(tic * 3));
-                                    sink.as_ref().map(|s| s.stop());
-                                    buffer.push(false);
-                                }
-                                _ => {}
-                            }
+                        crossterm::event::KeyCode::Char(']') => {
+                            sink.as_ref()
+                                .map(|s| s.append(SineWave::new(args.frequency as f32)));
+                            std::thread::sleep(Duration::from_millis(tic * 3));
+                            sink.as_ref().map(|s| s.stop());
+                            buffer.push(false);
                         }
+                        _ => {}
                     }
                 }
-                _ => {}
+            } else {
+                if kev.is_press() {
+                    if holding {
+                        holds += 1;
+                        continue;
+                    }
+                    holding = true;
+                    sink.as_ref()
+                        .map(|s| s.append(SineWave::new(args.frequency as f32)));
+                    last_press = std::time::Instant::now();
+                }
+                if kev.is_release() {
+                    sink.as_ref().map(|s| s.stop());
+                    holding = false;
+                    holds = 0;
+                    let now = std::time::Instant::now();
+                    let passed = now.duration_since(last_press);
+                    let mut is_dit = false;
+                    if passed.as_millis() < tic as u128 {
+                        is_dit = true;
+                    }
+                    buffer.push(is_dit);
+                }
             }
         } else {
             if holding {
@@ -192,12 +173,10 @@ fn main() -> anyhow::Result<()> {
                     .map(|&b| if b { '.' } else { '-' })
                     .collect::<String>();
 
-                for &(ch, code) in &abc {
+                for &(ch, code) in &constants::ABC {
                     if code.len() == buffer_chrs.len() {
                         if code == buffer_chrs {
                             text.push(ch);
-                            print!("{}", ch);
-                            stdout().flush()?;
                             break;
                         }
                     }
@@ -210,7 +189,6 @@ fn main() -> anyhow::Result<()> {
                 }
                 buffer.clear();
                 text.push(' ');
-                print!(" ");
                 stdout().flush()?;
             }
         }
