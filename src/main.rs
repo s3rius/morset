@@ -28,8 +28,14 @@ struct Args {
     /// Use telegraph keying paddles emulation
     #[clap(short, long, default_value_t = false)]
     paddle: bool,
+
+    #[clap(short, long, default_value_t = false)]
+    minimal: bool,
 }
 
+/// IO events that we receive from users input
+/// KeyPress and KeyRelease are sent before Dot/Dash events
+/// to indicate the state of the key.
 #[derive(Debug)]
 enum IOEvent {
     KeyPress,
@@ -40,13 +46,30 @@ enum IOEvent {
     Exit,
 }
 
+// UI thread function
+// Updates the terminal UI every `tic` duration
+// with current state of the application.
+//
+// - tic: Duration for UI update interval
+// - paddle: whether paddle mode is enabled
+// - text_lock: shared lock for the translated text
+// - buffer_lock: shared lock for the current Morse code buffer
+// - ticks_lock: shared lock for the current tick count
 fn ui(
     tic: Duration,
     paddle: bool,
+    minimal: bool,
     text_lock: Arc<RwLock<String>>,
     buffer_lock: Arc<RwLock<Vec<char>>>,
     ticks_lock: Arc<RwLock<u64>>,
 ) -> anyhow::Result<()> {
+    let mut contols = vec!["ESC or ^C => exit", "Backspace => clear text"];
+    if paddle {
+        contols.push("[ => Dot");
+        contols.push("] => Dash");
+    } else {
+        contols.push("Any key => emit signal");
+    }
     loop {
         std::thread::sleep(tic);
         execute!(
@@ -55,17 +78,22 @@ fn ui(
             crossterm::cursor::MoveTo(0, 0)
         )?;
 
-        println!("Morse Code Translator");
-        execute!(stdout(), crossterm::cursor::MoveToColumn(0))?;
-        if paddle {
-            println!("Press `[` for dot and `]` for dash");
-        } else {
-            println!("Press and hold any key to send Morse code");
+        if !minimal {
+            println!("Morse Code Translator");
+            execute!(stdout(), crossterm::cursor::MoveToColumn(0))?;
+            println!("Controls:");
+            execute!(stdout(), crossterm::cursor::MoveToColumn(0))?;
+            for control in &contols {
+                println!("\t{control}");
+                execute!(stdout(), crossterm::cursor::MoveToColumn(0))?;
+            }
+            execute!(stdout(), crossterm::cursor::MoveToColumn(0))?;
+            println!("Use backspace to clear text. Esc or ^C to exit.");
+            execute!(stdout(), crossterm::cursor::MoveToColumn(0))?;
+            println!("=====================");
+            execute!(stdout(), crossterm::cursor::MoveToColumn(0))?;
+            print!("Ticks: ");
         }
-        execute!(stdout(), crossterm::cursor::MoveToColumn(0))?;
-        println!("=====================");
-        execute!(stdout(), crossterm::cursor::MoveToColumn(0))?;
-        print!("Ticks: ");
 
         let ticks = ticks_lock.read().unwrap();
 
@@ -78,8 +106,6 @@ fn ui(
         }
         println!();
         execute!(stdout(), crossterm::cursor::MoveToColumn(0))?;
-        println!("Output: ");
-        execute!(stdout(), crossterm::cursor::MoveToColumn(0))?;
         let text = text_lock.read().unwrap();
         let buffer = buffer_lock.read().unwrap();
         let chars = buffer.iter().collect::<String>();
@@ -88,6 +114,15 @@ fn ui(
     }
 }
 
+/// IO thread function
+///
+/// Handles user input and plays sound accordingly.
+/// sends events to the main thread via event_queue.
+/// - tic: Duration for dot/dash timing
+/// - silent: whether to play sound or not
+/// - volume: volume of the sound (0-100)
+/// - frequency: frequency of the sound in Hz
+/// - event_queue: channel to send IOEvents to main thread
 fn io(
     tic: Duration,
     silent: bool,
@@ -155,11 +190,25 @@ fn io(
     Ok(())
 }
 
+/// Main application function
 fn run_app(args: Args) -> anyhow::Result<String> {
     let wpm = args.wpm as f64;
+    // We calculate one tic (which equals to one dot duration) for
+    // target WPM using the following formula.
+    // Word PARIS is used as standard word to calculate WPM
+    // for MORSE code communications.
+    //
+    // PARIS = one word = 50 ticks (dots)
+    //
+    // Minutes per word = 1 / WPM
+    // Seconds per word = 60 / WPM
+    // Seconds per tick = (60 / WPM) / 50 = 60 / (50 * WPM)
+    // Milliseconds per tick = (60 / (50 * WPM)) * 1000
     let tic = Duration::from_millis((60.0 / (50.0 * wpm) * 1000.0) as u64);
     let (event_tx, event_rx) = std::sync::mpsc::channel();
 
+    // We use RwLock to share data between threads safely
+    // and have less time blocked on locks when just reading.
     let data = Arc::new(RwLock::new(String::new()));
     let buffer = Arc::new(RwLock::new(Vec::new()));
     let ticks = Arc::new(RwLock::new(0u64));
@@ -173,10 +222,13 @@ fn run_app(args: Args) -> anyhow::Result<String> {
             event_tx,
         )
     });
+
+    // We have to clone data before moving into the thread
+    // because move closures take ownership of the variables.
     let ui_data = data.clone();
     let ui_buffer = buffer.clone();
     let ui_ticks = ticks.clone();
-    std::thread::spawn(move || ui(tic, args.paddle, ui_data, ui_buffer, ui_ticks));
+    std::thread::spawn(move || ui(tic, args.paddle, args.minimal, ui_data, ui_buffer, ui_ticks));
 
     let mut pressed = false;
     let mut last_tick = std::time::Instant::now();
@@ -221,6 +273,9 @@ fn run_app(args: Args) -> anyhow::Result<String> {
                         if !text.is_empty() {
                             text.push(' ');
                         }
+                        // We can skip clearing buffer,
+                        // because it should be already empty,
+                        // but just in case. 🤷
                         let mut buf = buffer.write().unwrap();
                         buf.clear();
                     }
@@ -231,7 +286,15 @@ fn run_app(args: Args) -> anyhow::Result<String> {
         let possible_event = event_rx.try_recv();
 
         match possible_event {
+            // If there were no events, we just continue
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            // If the channel is disconnected by any reason, we exit the loop
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+            // Otherwise we have an event to process
             Ok(io_event) => {
+                // Here we update our last_tick,
+                // because all IO events should reset
+                // the tick counter.
                 last_tick = std::time::Instant::now();
                 match io_event {
                     IOEvent::Dot => {
@@ -267,8 +330,6 @@ fn run_app(args: Args) -> anyhow::Result<String> {
                     IOEvent::Exit => break,
                 }
             }
-            Err(std::sync::mpsc::TryRecvError::Empty) => {}
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
         }
     }
     if data.is_poisoned() {
@@ -303,63 +364,6 @@ fn main() -> anyhow::Result<()> {
 
     let result = run_app(args);
 
-    // loop {
-    //     execute!(
-    //         stdout(),
-    //         crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
-    //         crossterm::cursor::MoveTo(0, 0)
-    //     )?;
-    //     if holding {
-    //     } else {
-    //         for i in 0..7 {
-    //             if i < empties || empties > 7 {
-    //                 print!("●");
-    //             } else {
-    //                 print!(" ");
-    //             }
-    //         }
-    //     }
-    //     println!();
-    //     let chars = buffer
-    //         .iter()
-    //         .map(|&b| if b { '.' } else { '-' })
-    //         .collect::<String>();
-    //     execute!(stdout(), crossterm::cursor::MoveToColumn(0))?;
-    //     print!("{text}{chars}");
-    //     stdout().flush()?;
-    //     if poll(Duration::from_millis(tic))? {
-    //         empties = 0;
-    //         let event = read()?;
-    //     } else {
-    //         if holding {
-    //             continue;
-    //         }
-    //         empties += 1;
-    //         if empties == 3 {
-    //             let buffer_chrs = buffer
-    //                 .iter()
-    //                 .map(|&b| if b { '.' } else { '-' })
-    //                 .collect::<String>();
-    //
-    //             for &(ch, code) in &constants::ABC {
-    //                 if code == buffer_chrs {
-    //                     text.push(ch);
-    //                     break;
-    //                 }
-    //             }
-    //             buffer.clear();
-    //         }
-    //         if empties == 7 {
-    //             if text.is_empty() {
-    //                 continue;
-    //             }
-    //             buffer.clear();
-    //             text.push(' ');
-    //             stdout().flush()?;
-    //         }
-    //     }
-    // }
-
     execute!(
         stdout(),
         crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
@@ -373,11 +377,14 @@ fn main() -> anyhow::Result<()> {
     disable_raw_mode()?;
 
     match result {
-        Ok(_) => {}
+        Ok(text) => {
+            print!("{text}");
+        }
         Err(err) => {
             eprintln!("Error: {}", err);
         }
     }
+    stdout().flush().ok();
 
     Ok(())
 }
