@@ -237,7 +237,6 @@ fn io_paddle(
 
     // If silent, we drop the sink to avoid playing sound
 
-    let mut holding = false;
     let (emitter_tx, emitter_rx) = std::sync::mpsc::channel::<PaddleEmitterEvent>();
     let event_tx_clone = event_queue.clone();
 
@@ -259,18 +258,22 @@ fn io_paddle(
             };
             match command {
                 PaddleEmitterEvent::StartDot => {
+                    event_tx_clone.send(IOEvent::KeyPress).ok();
                     event_tx_clone.send(IOEvent::Dot).ok();
                     sink.as_ref()
                         .map(|s| s.append(SineWave::new(frequency as f32)));
                     std::thread::sleep(tic);
                     sink.as_ref().map(|s| s.stop());
+                    event_tx_clone.send(IOEvent::KeyRelease).ok();
                 }
                 PaddleEmitterEvent::StartDash => {
+                    event_tx_clone.send(IOEvent::KeyPress).ok();
                     event_tx_clone.send(IOEvent::Dash).ok();
                     sink.as_ref()
                         .map(|s| s.append(SineWave::new(frequency as f32)));
-                    std::thread::sleep(tic);
+                    std::thread::sleep(3 * tic);
                     sink.as_ref().map(|s| s.stop());
+                    event_tx_clone.send(IOEvent::KeyRelease).ok();
                 }
                 PaddleEmitterEvent::Stop => {
                     sink.as_ref().map(|s| s.stop());
@@ -282,13 +285,6 @@ fn io_paddle(
     });
 
     loop {
-        if !crossterm::event::poll(tic)? {
-            if holding {
-                holding = false;
-            }
-
-            continue;
-        }
         let event = crossterm::event::read()?;
         let Some(kev) = event.as_key_event() else {
             continue;
@@ -491,13 +487,6 @@ fn run_app(args: Args) -> anyhow::Result<String> {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-
-    println!("Welcome to Morse Code Translator!");
-    if args.paddle {
-        println!("Press `[` for dot and `]` for dash. Esc or ^C to exit.");
-    } else {
-        println!("Press and hold any key to send Morse code. Esc or ^C to exit.");
-    }
 
     enable_raw_mode()?;
 
