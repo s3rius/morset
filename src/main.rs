@@ -29,7 +29,7 @@ struct Args {
     /// Use telegraph keying paddles emulation
     #[clap(short, long, default_value_t = false)]
     paddle: bool,
-
+    /// Don't show banner and controls info.
     #[clap(short, long, default_value_t = false)]
     minimal: bool,
 }
@@ -208,6 +208,18 @@ fn io_single_key(
     Ok(())
 }
 
+/// An event used in paddle mode
+/// to activate emitter.
+///
+/// When StartDot or StartDash is received,
+/// the emitter thread will start emitting
+/// corresponding signals continuously until
+/// Stop is received.
+///
+/// On stop, it will stop any ongoing sound
+/// and wait for new commands.
+///
+/// On exit, the emitter thread will terminate itself.
 #[derive(Debug, Copy, Clone)]
 enum PaddleEmitterEvent {
     StartDot,
@@ -240,7 +252,15 @@ fn io_paddle(
     let (emitter_tx, emitter_rx) = std::sync::mpsc::channel::<PaddleEmitterEvent>();
     let event_tx_clone = event_queue.clone();
 
+    // Continuous emitter thread.
+    //
+    // This thread dot and dash events. It's required, because
+    // in paddle mode, user can press and hold either key,
+    // and we need to send dot or dash events continuously.
+    //
+    // This is used to simulate real telegraph keying paddles behavior.
     std::thread::spawn(move || {
+        // We open audio stream here. Because we don't need it outside.
         let mut stream = rodio::OutputStreamBuilder::open_default_stream().ok();
         stream.as_mut().map(|s| s.log_on_drop(false));
         let mut sink = stream.as_ref().map(|s| rodio::Sink::connect_new(s.mixer()));
@@ -249,6 +269,7 @@ fn io_paddle(
             sink.take();
         }
 
+        // Last command to repeat if no new command is received.
         let mut last_command = PaddleEmitterEvent::Stop;
         loop {
             let command = match emitter_rx.try_recv() {
@@ -256,6 +277,7 @@ fn io_paddle(
                 Err(TryRecvError::Empty) => last_command,
                 Err(TryRecvError::Disconnected) => PaddleEmitterEvent::Exit,
             };
+            // For those look ad PaddleEmitterEvent docs.
             match command {
                 PaddleEmitterEvent::StartDot => {
                     event_tx_clone.send(IOEvent::KeyPress).ok();
@@ -284,6 +306,8 @@ fn io_paddle(
         }
     });
 
+    let mut pressed = false;
+
     loop {
         let event = crossterm::event::read()?;
         let Some(kev) = event.as_key_event() else {
@@ -303,13 +327,21 @@ fn io_paddle(
         }
 
         if kev.is_press() {
+            // We don't want to emit any futher events,
+            // while the key is already pressed.
+            if pressed {
+                continue;
+            }
+            pressed = true;
             if kev.code == crossterm::event::KeyCode::Char('[') {
                 emitter_tx.send(PaddleEmitterEvent::StartDot)?;
             } else if kev.code == crossterm::event::KeyCode::Char(']') {
                 emitter_tx.send(PaddleEmitterEvent::StartDash)?;
             }
         }
+        // When it's released, we just stop any ongoing sound.
         if kev.is_release() {
+            pressed = false;
             emitter_tx.send(PaddleEmitterEvent::Stop)?;
         }
     }
