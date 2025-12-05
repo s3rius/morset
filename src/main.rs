@@ -1,11 +1,12 @@
 use clap::Parser;
 use crossterm::event::{
-    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags, read,
+    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::{self, execute};
 use rodio::source::SineWave;
 use std::io::{Write, stdout};
+use std::sync::mpsc::TryRecvError;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -78,6 +79,8 @@ fn ui(
             crossterm::cursor::MoveTo(0, 0)
         )?;
 
+        // We don't want to show banner in minimal mode.
+        // Just ticks and text.
         if !minimal {
             println!("Morse Code Translator");
             execute!(stdout(), crossterm::cursor::MoveToColumn(0))?;
@@ -114,16 +117,17 @@ fn ui(
     }
 }
 
-/// IO thread function
+/// IO thread function for single key input mode.
 ///
 /// Handles user input and plays sound accordingly.
+///
 /// sends events to the main thread via event_queue.
 /// - tic: Duration for dot/dash timing
 /// - silent: whether to play sound or not
 /// - volume: volume of the sound (0-100)
 /// - frequency: frequency of the sound in Hz
 /// - event_queue: channel to send IOEvents to main thread
-fn io(
+fn io_single_key(
     tic: Duration,
     silent: bool,
     volume: u8,
@@ -146,25 +150,33 @@ fn io(
     }
 
     loop {
-        let event = read()?;
+        let event = crossterm::event::read()?;
+        // Not a key event, ignore
         let Some(kev) = event.as_key_event() else {
             continue;
         };
+        // Exit on ESC or Ctrl+C
         if kev.code.is_esc()
             || (kev.code.is_char('c')
                 && kev
                     .modifiers
                     .contains(crossterm::event::KeyModifiers::CONTROL))
         {
-            event_queue.send(IOEvent::Exit)?;
             break;
         }
+        // Clear event on Backspace
         if kev.code.is_backspace() {
             event_queue.send(IOEvent::Clear)?;
             continue;
         }
 
+        // If this is a key press event
+        // We just remember the time,
+        // to later match it with release event.
+        // Also we start playing sound on press
+        // in a separate thread.
         if kev.is_press() {
+            // To not play sound twice.
             if holding {
                 continue;
             }
@@ -174,6 +186,10 @@ fn io(
                 .map(|s| s.append(SineWave::new(frequency as f32)));
             last_press = std::time::Instant::now();
         }
+        // In case of release,
+        // we want to compare the time elapsed
+        // since last press to determine
+        // whether it was a dot or dash.
         if kev.is_release() {
             sink.as_ref().map(|s| s.stop());
             holding = false;
@@ -187,6 +203,122 @@ fn io(
             }
         }
     }
+    // At the end of the IO loop, we send Exit event.
+    event_queue.send(IOEvent::Exit)?;
+    Ok(())
+}
+
+#[derive(Debug, Copy, Clone)]
+enum PaddleEmitterEvent {
+    StartDot,
+    StartDash,
+    Stop,
+    Exit,
+}
+
+/// IO thread function for paddle mode.
+///
+/// Handles user input and plays sound accordingly.
+///
+/// sends events to the main thread via event_queue.
+/// - tic: Duration for dot/dash timing
+/// - silent: whether to play sound or not
+/// - volume: volume of the sound (0-100)
+/// - frequency: frequency of the sound in Hz
+/// - event_queue: channel to send IOEvents to main thread
+fn io_paddle(
+    tic: Duration,
+    silent: bool,
+    volume: u8,
+    frequency: u32,
+    event_queue: std::sync::mpsc::Sender<IOEvent>,
+) -> anyhow::Result<()> {
+    // Stream for output audio
+
+    // If silent, we drop the sink to avoid playing sound
+
+    let mut holding = false;
+    let (emitter_tx, emitter_rx) = std::sync::mpsc::channel::<PaddleEmitterEvent>();
+    let event_tx_clone = event_queue.clone();
+
+    std::thread::spawn(move || {
+        let mut stream = rodio::OutputStreamBuilder::open_default_stream().ok();
+        stream.as_mut().map(|s| s.log_on_drop(false));
+        let mut sink = stream.as_ref().map(|s| rodio::Sink::connect_new(s.mixer()));
+        sink.as_ref().map(|s| s.set_volume(volume as f32 / 100.0));
+        if silent {
+            sink.take();
+        }
+
+        let mut last_command = PaddleEmitterEvent::Stop;
+        loop {
+            let command = match emitter_rx.try_recv() {
+                Ok(cmd) => cmd,
+                Err(TryRecvError::Empty) => last_command,
+                Err(TryRecvError::Disconnected) => PaddleEmitterEvent::Exit,
+            };
+            match command {
+                PaddleEmitterEvent::StartDot => {
+                    event_tx_clone.send(IOEvent::Dot).ok();
+                    sink.as_ref()
+                        .map(|s| s.append(SineWave::new(frequency as f32)));
+                    std::thread::sleep(tic);
+                    sink.as_ref().map(|s| s.stop());
+                }
+                PaddleEmitterEvent::StartDash => {
+                    event_tx_clone.send(IOEvent::Dash).ok();
+                    sink.as_ref()
+                        .map(|s| s.append(SineWave::new(frequency as f32)));
+                    std::thread::sleep(tic);
+                    sink.as_ref().map(|s| s.stop());
+                }
+                PaddleEmitterEvent::Stop => {
+                    sink.as_ref().map(|s| s.stop());
+                }
+                PaddleEmitterEvent::Exit => break,
+            }
+            last_command = command;
+        }
+    });
+
+    loop {
+        if !crossterm::event::poll(tic)? {
+            if holding {
+                holding = false;
+            }
+
+            continue;
+        }
+        let event = crossterm::event::read()?;
+        let Some(kev) = event.as_key_event() else {
+            continue;
+        };
+        if kev.code.is_esc()
+            || (kev.code.is_char('c')
+                && kev
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::CONTROL))
+        {
+            break;
+        }
+        if kev.code.is_backspace() {
+            event_queue.send(IOEvent::Clear)?;
+            continue;
+        }
+
+        if kev.is_press() {
+            if kev.code == crossterm::event::KeyCode::Char('[') {
+                emitter_tx.send(PaddleEmitterEvent::StartDot)?;
+            } else if kev.code == crossterm::event::KeyCode::Char(']') {
+                emitter_tx.send(PaddleEmitterEvent::StartDash)?;
+            }
+        }
+        if kev.is_release() {
+            emitter_tx.send(PaddleEmitterEvent::Stop)?;
+        }
+    }
+    emitter_tx.send(PaddleEmitterEvent::Exit).ok();
+    event_queue.send(IOEvent::Exit).ok();
     Ok(())
 }
 
@@ -213,15 +345,28 @@ fn run_app(args: Args) -> anyhow::Result<String> {
     let buffer = Arc::new(RwLock::new(Vec::new()));
     let ticks = Arc::new(RwLock::new(0u64));
 
-    std::thread::spawn(move || {
-        io(
-            tic.clone(),
-            args.silent,
-            args.volume,
-            args.frequency,
-            event_tx,
-        )
-    });
+    // Depending on the mode, we spawn different IO threads.
+    if args.paddle {
+        std::thread::spawn(move || {
+            io_paddle(
+                tic.clone(),
+                args.silent,
+                args.volume,
+                args.frequency,
+                event_tx,
+            )
+        });
+    } else {
+        std::thread::spawn(move || {
+            io_single_key(
+                tic.clone(),
+                args.silent,
+                args.volume,
+                args.frequency,
+                event_tx,
+            )
+        });
+    }
 
     // We have to clone data before moving into the thread
     // because move closures take ownership of the variables.
