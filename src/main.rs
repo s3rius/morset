@@ -73,6 +73,49 @@ struct Args {
     mode: Option<Mode>,
 }
 
+fn morse_to_string(morse: &str) -> Option<String> {
+    for &(ch, code) in &constants::ABC {
+        if code == morse {
+            return Some(ch.to_string());
+        }
+    }
+    for &(ch, code) in &constants::NUMBERS {
+        if code == morse {
+            return Some(ch.to_string());
+        }
+    }
+    for &(ch, code) in &constants::SIGNS {
+        if code == morse {
+            return Some(ch.to_string());
+        }
+    }
+    for &(prosign, code) in &constants::PROSIGNS {
+        if code == morse {
+            return Some(prosign.to_string());
+        }
+    }
+    None
+}
+
+fn char_to_morse(c: char) -> Option<String> {
+    for &(ch, code) in &constants::ABC {
+        if ch == c {
+            return Some(code.to_string());
+        }
+    }
+    for &(ch, code) in &constants::NUMBERS {
+        if ch == c {
+            return Some(code.to_string());
+        }
+    }
+    for &(ch, code) in &constants::SIGNS {
+        if ch == c {
+            return Some(code.to_string());
+        }
+    }
+    None
+}
+
 /// IO events that we receive from users input
 /// KeyPress and KeyRelease are sent before Dot/Dash events
 /// to indicate the state of the key.
@@ -151,7 +194,15 @@ fn ui(
         let text = text_lock.read().unwrap();
         let buffer = buffer_lock.read().unwrap();
         let chars = buffer.iter().collect::<String>();
-        print!("{text}{chars}");
+        let lines_count = text.lines().count();
+        for (i, line) in text.lines().enumerate() {
+            execute!(stdout(), crossterm::cursor::MoveToColumn(0))?;
+            print!("{}", line.trim_start());
+            if i < lines_count - 1 {
+                println!();
+            }
+        }
+        print!("{chars}");
         stdout().flush()?;
     }
 }
@@ -456,17 +507,11 @@ fn writing_loop(
                     // Once every 3 ticks we try resolving the buffer into a character
                     if *ticks_guard == 3 {
                         let mut buf = buffer.write().unwrap();
-                        let buffer_chrs = buf.iter().collect::<String>();
-                        for &(ch, code) in &constants::ABC {
-                            // If we found a match, add it to a text.
-                            if code == buffer_chrs {
-                                let mut text = data.write().unwrap();
-                                text.push(ch);
-                                break;
-                            }
+                        let res = morse_to_string(buf.iter().collect::<String>().as_str());
+                        if let Some(ch) = res {
+                            let mut text = data.write().unwrap();
+                            text.push_str(&ch);
                         }
-                        // Remove the buffer either way
-                        // So we can receive new input
                         buf.clear();
                     }
                     // If 7 ticks have passed without input, we commit a space
@@ -606,32 +651,28 @@ fn enqueue_word(
     }
 
     for (i, ch) in word.chars().enumerate() {
-        for &(c, code) in &constants::ABC {
-            if c == ch {
-                for (j, signal) in code.chars().enumerate() {
-                    let duration = match signal {
-                        '.' => dit,
-                        '-' => dah,
-                        _ => continue,
-                    };
-                    sink.append(
-                        rodio::source::SineWave::new(frequency as f32).take_duration(duration),
-                    );
-                    if j < code.len() - 1 {
-                        // Space between signals in a letter
-                        sink.append(rodio::source::Zero::new(1, 48000).take_duration(dit));
-                    }
-                }
-                break;
+        if ch == ' ' {
+            sink.append(rodio::source::Zero::new(1, 48000).take_duration(between_words));
+            continue;
+        }
+        let Some(morse) = char_to_morse(ch) else {
+            continue;
+        };
+        for (j, signal) in morse.chars().enumerate() {
+            let duration = match signal {
+                '.' => dit,
+                '-' => dah,
+                _ => continue,
+            };
+            sink.append(rodio::source::SineWave::new(frequency as f32).take_duration(duration));
+            if j < morse.len() - 1 {
+                // Space between signals in a letter
+                sink.append(rodio::source::Zero::new(1, 48000).take_duration(dit));
             }
         }
-        if ch != ' ' && i < word.len() - 1 {
+        if i < word.len() - 1 {
             // Space between letters
             sink.append(rodio::source::Zero::new(1, 48000).take_duration(between_letters));
-        }
-        if ch == ' ' {
-            // Space between words (7 dits)
-            sink.append(rodio::source::Zero::new(1, 48000).take_duration(between_words));
         }
     }
     Ok(())
