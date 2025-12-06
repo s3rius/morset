@@ -641,6 +641,7 @@ fn listening_loop(args: Args, farnsworth: bool, words_file: Option<PathBuf>) -> 
     println!(
         "You are going to hear Morse code. Translate it to text, write in the console and press enter to submit."
     );
+    println!("Leave empty and press enter to hear the code again.");
     println!("Press Ctrl+C to exit.");
     println!("============================");
     stdout().flush()?;
@@ -655,7 +656,7 @@ fn listening_loop(args: Args, farnsworth: bool, words_file: Option<PathBuf>) -> 
         for line in content.lines() {
             let word = line.trim();
             if !word.is_empty() {
-                training_words.push(word.to_string());
+                training_words.push(word.trim().to_uppercase());
             }
         }
     } else {
@@ -672,18 +673,20 @@ fn listening_loop(args: Args, farnsworth: bool, words_file: Option<PathBuf>) -> 
         let Some(target) = training_words.choose(&mut rng) else {
             anyhow::bail!("No training words available.");
         };
-        enqueue_word(
-            &sink,
-            farnsworth,
-            &target.to_uppercase(),
-            args.wpm,
-            args.frequency,
-        )?;
-        sink.sleep_until_end();
         let mut answer = String::new();
-        print!(">");
-        stdout().flush()?;
-        std::io::stdin().read_line(&mut answer)?;
+        while answer.trim().is_empty() {
+            enqueue_word(
+                &sink,
+                farnsworth,
+                &target.to_uppercase(),
+                args.wpm,
+                args.frequency,
+            )?;
+            print!(">");
+            stdout().flush()?;
+            sink.sleep_until_end();
+            std::io::stdin().read_line(&mut answer)?;
+        }
         if answer.trim().to_uppercase() == *target {
             println!("Correct!");
         } else {
