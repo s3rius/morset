@@ -675,6 +675,7 @@ fn listening_loop(args: Args, farnsworth: bool, words_file: Option<PathBuf>) -> 
         };
         let mut answer = String::new();
         while answer.trim().is_empty() {
+            sink.stop();
             enqueue_word(
                 &sink,
                 farnsworth,
@@ -684,7 +685,7 @@ fn listening_loop(args: Args, farnsworth: bool, words_file: Option<PathBuf>) -> 
             )?;
             print!(">");
             stdout().flush()?;
-            sink.sleep_until_end();
+            sink.play();
             std::io::stdin().read_line(&mut answer)?;
         }
         if answer.trim().to_uppercase() == *target {
