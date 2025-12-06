@@ -4,8 +4,11 @@ use crossterm::event::{
 };
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::{self, execute};
+use rand::seq::IndexedRandom;
 use rodio::source::SineWave;
+use rodio::Source;
 use std::io::{Write, stdout};
+use std::path::PathBuf;
 use std::sync::mpsc::TryRecvError;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -13,25 +16,56 @@ use std::time::Duration;
 mod constants;
 
 #[derive(clap::Parser)]
+struct TrainArgs {
+    /// Path to the words file
+    #[clap(short, long)]
+    words_file: Option<PathBuf>,
+}
+
+#[derive(clap::Subcommand, Clone)]
+enum Mode {
+    /// Practice writing morse code (default).
+    Writing {
+        /// Use telegraph keying paddles emulation
+        #[clap(short, long, default_value_t = false)]
+        paddle: bool,
+        /// Don't show banner and controls info.
+        #[clap(short, long, default_value_t = false)]
+        minimal: bool,
+        /// Silent mode (no sound)
+        #[clap(short, long, default_value_t = false)]
+        silent: bool,
+    },
+    /// Practice listening to morse code.
+    Listening {
+        /// Path to the words file.
+        /// If not provided, you will be tested against single letters.
+        #[clap(short, long)]
+        words_file: Option<PathBuf>,
+        /// User farnsworth timings.
+        /// This mode helps recognize code better
+        /// by giving more time for spaces between letters and words.
+        /// Google farnsworth timing for more info.
+        #[clap(long)]
+        farnsworth: bool,
+    },
+}
+
+#[derive(clap::Parser, Clone)]
+#[command(author, version, about, long_about = None)]
+#[command(propagate_version = true)]
 struct Args {
     /// Words per minute
     #[clap(short, long, default_value_t = 10)]
     wpm: u64,
-    /// Silent mode (no sound)
-    #[clap(short, long, default_value_t = false)]
-    silent: bool,
     // Volume in percentage 1-100
     #[clap(short, long, default_value_t = 11)]
     volume: u8,
     /// Frequency in Hz
     #[clap(short, long, default_value_t = 1200)]
     frequency: u32,
-    /// Use telegraph keying paddles emulation
-    #[clap(short, long, default_value_t = false)]
-    paddle: bool,
-    /// Don't show banner and controls info.
-    #[clap(short, long, default_value_t = false)]
-    minimal: bool,
+    #[clap(subcommand)]
+    mode: Option<Mode>,
 }
 
 /// IO events that we receive from users input
@@ -351,8 +385,14 @@ fn io_paddle(
 }
 
 /// Main application function
-fn run_app(args: Args) -> anyhow::Result<String> {
-    let wpm = args.wpm as f64;
+fn writing_loop(
+    wpm: u64,
+    volume: u8,
+    frequency: u32,
+    silent: bool,
+    paddle: bool,
+    minimal: bool,
+) -> anyhow::Result<String> {
     // We calculate one tic (which equals to one dot duration) for
     // target WPM using the following formula.
     // Word PARIS is used as standard word to calculate WPM
@@ -364,7 +404,7 @@ fn run_app(args: Args) -> anyhow::Result<String> {
     // Seconds per word = 60 / WPM
     // Seconds per tick = (60 / WPM) / 50 = 60 / (50 * WPM)
     // Milliseconds per tick = (60 / (50 * WPM)) * 1000
-    let tic = Duration::from_millis((60.0 / (50.0 * wpm) * 1000.0) as u64);
+    let tic = Duration::from_millis((60.0 / (50.0 * wpm as f64) * 1000.0) as u64);
     let (event_tx, event_rx) = std::sync::mpsc::channel();
 
     // We use RwLock to share data between threads safely
@@ -374,26 +414,10 @@ fn run_app(args: Args) -> anyhow::Result<String> {
     let ticks = Arc::new(RwLock::new(0u64));
 
     // Depending on the mode, we spawn different IO threads.
-    if args.paddle {
-        std::thread::spawn(move || {
-            io_paddle(
-                tic.clone(),
-                args.silent,
-                args.volume,
-                args.frequency,
-                event_tx,
-            )
-        });
+    if paddle {
+        std::thread::spawn(move || io_paddle(tic.clone(), silent, volume, frequency, event_tx));
     } else {
-        std::thread::spawn(move || {
-            io_single_key(
-                tic.clone(),
-                args.silent,
-                args.volume,
-                args.frequency,
-                event_tx,
-            )
-        });
+        std::thread::spawn(move || io_single_key(tic.clone(), silent, volume, frequency, event_tx));
     }
 
     // We have to clone data before moving into the thread
@@ -401,7 +425,7 @@ fn run_app(args: Args) -> anyhow::Result<String> {
     let ui_data = data.clone();
     let ui_buffer = buffer.clone();
     let ui_ticks = ticks.clone();
-    std::thread::spawn(move || ui(tic, args.paddle, args.minimal, ui_data, ui_buffer, ui_ticks));
+    std::thread::spawn(move || ui(tic, paddle, minimal, ui_data, ui_buffer, ui_ticks));
 
     let mut pressed = false;
     let mut last_tick = std::time::Instant::now();
@@ -517,9 +541,7 @@ fn run_app(args: Args) -> anyhow::Result<String> {
     Ok(text)
 }
 
-fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
-
+fn start_writing(args: Args, silent: bool, paddle: bool, minimal: bool) -> anyhow::Result<()> {
     enable_raw_mode()?;
 
     #[cfg(not(windows))]
@@ -527,9 +549,15 @@ fn main() -> anyhow::Result<()> {
         stdout(),
         PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::REPORT_EVENT_TYPES)
     )?;
-
-    let result = run_app(args);
-
+    // We will handle writing mode below
+    let result = writing_loop(
+        args.wpm,
+        args.volume,
+        args.frequency,
+        silent,
+        paddle,
+        minimal,
+    );
     execute!(
         stdout(),
         crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
@@ -551,6 +579,124 @@ fn main() -> anyhow::Result<()> {
         }
     }
     stdout().flush().ok();
+    Ok(())
+}
+
+fn enqueue_word(sink: &rodio::Sink, word: &str, wpm: u64, frequency: u32) -> anyhow::Result<()> {
+    let dit = Duration::from_millis((60.0 / (50.0 * wpm as f64) * 1000.0) as u64);
+    let dah = 3 * dit;
+    let between_letters = dit;
+    let between_words = 7 * dit;
+
+    for (i, ch) in word.chars().enumerate() {
+        for &(c, code) in &constants::ABC {
+            if c == ch {
+                for (j, signal) in code.chars().enumerate() {
+                    let duration = match signal {
+                        '.' => dit,
+                        '-' => dah,
+                        _ => continue,
+                    };
+                    sink.append(
+                        rodio::source::SineWave::new(frequency as f32).take_duration(duration),
+                    );
+                    if j < code.len() - 1 {
+                        // Space between signals in a letter
+                        sink.append(rodio::source::Zero::new(1, 48000).take_duration(dit));
+                    }
+                }
+                break;
+            }
+        }
+        if ch != ' ' && i < word.len() - 1 {
+            // Space between letters
+            sink.append(rodio::source::Zero::new(1, 48000).take_duration(between_letters));
+        }
+        if ch == ' ' {
+            // Space between words (7 dits)
+            sink.append(rodio::source::Zero::new(1, 48000).take_duration(between_words));
+        }
+    }
+    Ok(())
+}
+
+fn listening_loop(args: Args, farnsworth: bool, words_file: Option<PathBuf>) -> anyhow::Result<()> {
+    println!("Morse code listening training.");
+    println!(
+        "WPM: {}, Frequency: {} Hz, Volume: {}%",
+        args.wpm, args.frequency, args.volume
+    );
+    println!(
+        "You are going to hear Morse code. Translate it to text, write in the console and press enter to submit."
+    );
+    println!("Press Ctrl+C to exit.");
+    println!("============================");
+    stdout().flush()?;
+    let stream = rodio::OutputStreamBuilder::open_default_stream()?;
+    let sink = rodio::Sink::connect_new(stream.mixer());
+    sink.set_volume(args.volume as f32 / 100.0);
+    let mut training_words = vec![];
+
+    if let Some(path) = words_file {
+        println!("Using words file: {:?}", path);
+        let content = std::fs::read_to_string(path)?;
+        for line in content.lines() {
+            let word = line.trim();
+            if !word.is_empty() {
+                training_words.push(word.to_string());
+            }
+        }
+    } else {
+        println!("No words file provided. Using single letters for training.");
+        // Here we would implement the listening training logic
+        // using single letters.
+        for &(ch, _) in &constants::ABC {
+            training_words.push(ch.to_string());
+        }
+    }
+    let mut rng = rand::rng();
+
+    loop {
+        let Some(target) = training_words.choose(&mut rng) else {
+            anyhow::bail!("No training words available.");
+        };
+        enqueue_word(&sink, &target.to_uppercase(), args.wpm, args.frequency)?;
+        sink.sleep_until_end();
+        let mut answer = String::new();
+        print!(">");
+        stdout().flush()?;
+        std::io::stdin().read_line(&mut answer)?;
+        if answer.trim().to_uppercase() == *target {
+            println!("Correct!");
+        } else {
+            println!("Incorrect! The correct answer was: {}", target);
+        }
+    }
+}
+
+fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+
+    match args.clone().mode {
+        Some(Mode::Listening {
+            words_file,
+            farnsworth,
+        }) => {
+            listening_loop(args, farnsworth, words_file)?;
+            return Ok(());
+        }
+        Some(Mode::Writing {
+            paddle,
+            minimal,
+            silent,
+        }) => {
+            start_writing(args, silent, paddle, minimal)?;
+        }
+        None => {
+            // Default to writing mode without paddles and minimal UI
+            start_writing(args, false, false, false)?;
+        }
+    }
 
     Ok(())
 }
