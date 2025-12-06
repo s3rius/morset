@@ -46,8 +46,13 @@ enum Mode {
         /// This mode helps recognize code better
         /// by giving more time for spaces between letters and words.
         /// Google farnsworth timing for more info.
-        #[clap(long)]
+        #[clap(long, short = 'f', default_value_t = false)]
         farnsworth: bool,
+
+        /// Generate background noise during listening.
+        /// Helps simulate real-world conditions.
+        #[clap(long, short = 'n', default_value_t = false)]
+        noise: bool,
     },
 }
 
@@ -596,8 +601,8 @@ fn enqueue_word(
     let mut between_words = 7 * dit;
 
     if farnsworth {
-        between_letters = between_letters * 2;
-        between_words = between_words * 2;
+        between_letters = between_letters * 3;
+        between_words = between_words * 3;
     }
 
     for (i, ch) in word.chars().enumerate() {
@@ -632,7 +637,12 @@ fn enqueue_word(
     Ok(())
 }
 
-fn listening_loop(args: Args, farnsworth: bool, words_file: Option<PathBuf>) -> anyhow::Result<()> {
+fn listening_loop(
+    args: Args,
+    noise: bool,
+    farnsworth: bool,
+    words_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
     println!("Morse code listening training.");
     println!(
         "WPM: {}, Frequency: {} Hz, Volume: {}%",
@@ -649,6 +659,12 @@ fn listening_loop(args: Args, farnsworth: bool, words_file: Option<PathBuf>) -> 
     let sink = rodio::Sink::connect_new(stream.mixer());
     sink.set_volume(args.volume as f32 / 100.0);
     let mut training_words = vec![];
+
+    let noises = rodio::Sink::connect_new(stream.mixer());
+    if noise {
+        noises.set_volume(args.volume as f32 / 100.0);
+        noises.append(rodio::source::noise::WhiteGaussian::new(48000));
+    }
 
     if let Some(path) = words_file {
         println!("Using words file: {:?}", path);
@@ -703,8 +719,9 @@ fn main() -> anyhow::Result<()> {
         Some(Mode::Listening {
             words_file,
             farnsworth,
+            noise,
         }) => {
-            listening_loop(args, farnsworth, words_file)?;
+            listening_loop(args, noise, farnsworth, words_file)?;
             return Ok(());
         }
         Some(Mode::Writing {
