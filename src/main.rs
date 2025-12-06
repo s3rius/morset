@@ -5,8 +5,8 @@ use crossterm::event::{
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::{self, execute};
 use rand::seq::IndexedRandom;
-use rodio::source::SineWave;
 use rodio::Source;
+use rodio::source::SineWave;
 use std::io::{Write, stdout};
 use std::path::PathBuf;
 use std::sync::mpsc::TryRecvError;
@@ -582,11 +582,23 @@ fn start_writing(args: Args, silent: bool, paddle: bool, minimal: bool) -> anyho
     Ok(())
 }
 
-fn enqueue_word(sink: &rodio::Sink, word: &str, wpm: u64, frequency: u32) -> anyhow::Result<()> {
+fn enqueue_word(
+    sink: &rodio::Sink,
+    farnsworth: bool,
+    word: &str,
+    wpm: u64,
+    frequency: u32,
+) -> anyhow::Result<()> {
     let dit = Duration::from_millis((60.0 / (50.0 * wpm as f64) * 1000.0) as u64);
     let dah = 3 * dit;
-    let between_letters = dit;
-    let between_words = 7 * dit;
+
+    let mut between_letters = 3 * dit;
+    let mut between_words = 7 * dit;
+
+    if farnsworth {
+        between_letters = between_letters * 2;
+        between_words = between_words * 2;
+    }
 
     for (i, ch) in word.chars().enumerate() {
         for &(c, code) in &constants::ABC {
@@ -660,7 +672,13 @@ fn listening_loop(args: Args, farnsworth: bool, words_file: Option<PathBuf>) -> 
         let Some(target) = training_words.choose(&mut rng) else {
             anyhow::bail!("No training words available.");
         };
-        enqueue_word(&sink, &target.to_uppercase(), args.wpm, args.frequency)?;
+        enqueue_word(
+            &sink,
+            farnsworth,
+            &target.to_uppercase(),
+            args.wpm,
+            args.frequency,
+        )?;
         sink.sleep_until_end();
         let mut answer = String::new();
         print!(">");
