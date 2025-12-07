@@ -53,7 +53,7 @@ pub const SIGNS: [(char, &'static str); 9] = [
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub (crate) enum ProSign {
+pub(crate) enum ProSign {
     AA,  // New line
     AR,  // End of message
     CT,  // Start copying
@@ -63,6 +63,7 @@ pub (crate) enum ProSign {
     SK,  // End of contact
     SN,  // Understood
     SOS, // Distress signal
+    ERR, // Errorneous Transmission
 }
 
 impl ToString for ProSign {
@@ -77,12 +78,12 @@ impl ToString for ProSign {
             ProSign::SK => String::from("<SK> (End of Contact)"),
             ProSign::SN => String::from("<SN> (Understood)"),
             ProSign::SOS => String::from("SOS (Distress Signal)"),
+            ProSign::ERR => String::from("<ERR> (Erroneous Transmission)"),
         }
     }
 }
 
-
-pub const PROSIGNS: [(ProSign, &'static str); 9] = [
+pub const PROSIGNS: [(ProSign, &'static str); 10] = [
     (ProSign::AA, ".-.-"),
     (ProSign::AR, ".-.-."),
     (ProSign::CT, "-.-.-"),
@@ -92,4 +93,5 @@ pub const PROSIGNS: [(ProSign, &'static str); 9] = [
     (ProSign::SK, "...-.-"),
     (ProSign::SN, "...-."),
     (ProSign::SOS, "...---..."),
+    (ProSign::ERR, "........"),
 ];
