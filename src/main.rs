@@ -310,7 +310,7 @@ fn io_single_key(
 /// and wait for new commands.
 ///
 /// On exit, the emitter thread will terminate itself.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum PaddleEmitterEvent {
     StartDot,
     StartDash,
@@ -362,11 +362,28 @@ fn io_paddle(
         // Last command to repeat if no new command is received.
         let mut last_command = PaddleEmitterEvent::Stop;
         loop {
-            let command = match emitter_rx.try_recv() {
-                Ok(cmd) => cmd,
-                Err(TryRecvError::Empty) => last_command,
-                Err(TryRecvError::Disconnected) => PaddleEmitterEvent::Exit,
-            };
+            let mut command: PaddleEmitterEvent = last_command;
+            // Here we try to drain up queue as fast as possible.
+            // If we receive same commands as the previous one,
+            // we just ignore them.
+            loop {
+                let got_cmd = match emitter_rx.try_recv() {
+                    Ok(cmd) => Some(cmd),
+                    Err(TryRecvError::Empty) => None,
+                    Err(TryRecvError::Disconnected) => Some(PaddleEmitterEvent::Exit),
+                };
+                // If it's the same command as last one, we ignore it.
+                if got_cmd == Some(last_command) {
+                    continue;
+                }
+                // If we got a new command, we set it and break to process it.
+                if let Some(new_cmd) = got_cmd {
+                    command = new_cmd;
+                    break;
+                }
+                // If there are no more commands, we break.
+                break;
+            }
             // For those look ad PaddleEmitterEvent docs.
             match command {
                 PaddleEmitterEvent::StartDot => {
@@ -374,7 +391,7 @@ fn io_paddle(
                     event_tx_clone.send(IOEvent::Dot).ok();
                     sink.as_ref()
                         .map(|s| s.append(SineWave::new(frequency as f32)));
-                    std::thread::sleep(tic);
+                    std::thread::sleep(tic * 2);
                     sink.as_ref().map(|s| s.stop());
                     event_tx_clone.send(IOEvent::KeyRelease).ok();
                 }
@@ -383,7 +400,7 @@ fn io_paddle(
                     event_tx_clone.send(IOEvent::Dash).ok();
                     sink.as_ref()
                         .map(|s| s.append(SineWave::new(frequency as f32)));
-                    std::thread::sleep(3 * tic);
+                    std::thread::sleep(4 * tic);
                     sink.as_ref().map(|s| s.stop());
                     event_tx_clone.send(IOEvent::KeyRelease).ok();
                 }
@@ -395,8 +412,6 @@ fn io_paddle(
             last_command = command;
         }
     });
-
-    let mut pressed = false;
 
     loop {
         let event = crossterm::event::read()?;
@@ -419,10 +434,6 @@ fn io_paddle(
         if kev.is_press() {
             // We don't want to emit any futher events,
             // while the key is already pressed.
-            if pressed {
-                continue;
-            }
-            pressed = true;
             if kev.code == crossterm::event::KeyCode::Char('[') {
                 emitter_tx.send(PaddleEmitterEvent::StartDot)?;
             } else if kev.code == crossterm::event::KeyCode::Char(']') {
@@ -431,7 +442,6 @@ fn io_paddle(
         }
         // When it's released, we just stop any ongoing sound.
         if kev.is_release() {
-            pressed = false;
             emitter_tx.send(PaddleEmitterEvent::Stop)?;
         }
     }
@@ -517,7 +527,7 @@ fn writing_loop(
                     // If 7 ticks have passed without input, we commit a space
                     if *ticks_guard == 7 {
                         let mut text = data.write().unwrap();
-                        if !text.is_empty() {
+                        if !text.is_empty() && !text.ends_with(' ') {
                             text.push(' ');
                         }
                         // We can skip clearing buffer,
