@@ -521,6 +521,10 @@ fn writing_loop(
                         if let Some(ch) = res {
                             let mut text = data.write().unwrap();
                             text.push_str(&ch);
+                        } else {
+                            let mut text = data.write().unwrap();
+                            let err_text = buf.iter().collect::<String>();
+                            text.push_str(&err_text);
                         }
                         buf.clear();
                     }
