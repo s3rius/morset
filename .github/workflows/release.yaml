@@ -1,8 +1,9 @@
 name: "Release package"
 
 on:
-  push:
-
+  release:
+    types:
+      - released
 
 jobs:
   release:
