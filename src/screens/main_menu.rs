@@ -21,18 +21,20 @@ fn setup_egui_main_menu(
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
     egui::CentralPanel::default().show(ctx, |ui| {
-        ui.vertical_centered(|ui| {
-            if ui.button("Writing").clicked() {
-                tracing::info!("Starting writing");
-                state.set(AppState::Writing);
-            }
-            if ui.button("Listening").clicked() {
-                tracing::info!("Starting listening");
-                state.set(AppState::Writing);
-            }
-            if ui.button("Exit").clicked() {
-                exit_writer.write(AppExit::Success);
-            }
+        ui.vertical_centered_justified(|ui| {
+            ui.group(|ui| {
+                if ui.button("Writing").clicked() {
+                    tracing::info!("Starting writing");
+                    state.set(AppState::Writing);
+                }
+                // if ui.button("Listening").clicked() {
+                //     tracing::info!("Starting listening");
+                //     state.set(AppState::Writing);
+                // }
+                if ui.button("Exit").clicked() {
+                    exit_writer.write(AppExit::Success);
+                }
+            });
         });
     });
     Ok(())

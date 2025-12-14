@@ -1,12 +1,15 @@
-use bevy::prelude::*;
 #[cfg(not(target_arch = "wasm32"))]
 use bevy::window::WindowResolution;
+use bevy::{audio::AddAudioSource, prelude::*};
 use bevy_egui::EguiPlugin;
 
 use crate::state::AppState;
 
+mod consts;
 mod screens;
+mod sine_audio;
 mod state;
+mod utils;
 
 fn main() {
     App::new()
@@ -31,9 +34,11 @@ fn main() {
             EguiPlugin::default(),
         ))
         .init_state::<AppState>()
+        .add_audio_source::<sine_audio::SineAudio>()
         .add_systems(Startup, setup_camera_system)
         .add_plugins(screens::MainMenuPlugin)
         .add_plugins(screens::WritingScreenPlugin)
+        .add_plugins(screens::ListeningScreenPlugin)
         .run();
 }
 
