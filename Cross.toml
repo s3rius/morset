@@ -1,7 +1,25 @@
 [target.x86_64-unknown-linux-gnu]
-image = "registry.gitlab.steamos.cloud/steamrt/soldier/sdk:latest"
+image = "registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest"
 pre-build = [
   "dpkg --add-architecture $CROSS_DEB_ARCH",
-  "apt-get update",
+  "ln -s /usr/share/zoneinfo/Europe/Belgrade /etc/localtime",
   "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
 ]
+env.passthrough = ["PKG_CONFIG_SYSROOT_DIR=/", "PKG_CONFIG_ALLOW_SYSTEM_LIBS=1"]
+
+[target.x86_64-unknown-freebsd]
+pre-build = [
+  "dpkg --add-architecture $CROSS_DEB_ARCH",
+  "ln -s /usr/share/zoneinfo/Europe/Belgrade /etc/localtime",
+  "apt-get update && apt-get --assume-yes install libssl-dev:$CROSS_DEB_ARCH libwayland-client0:$CROSS_DEB_ARCH libwayland-dev:$CROSS_DEB_ARCH alsa:$CROSS_DEB_ARCH libasound2-dev:$CROSS_DEB_ARCH libudev-dev:$CROSS_DEB_ARCH",
+]
+env.passthrough = ["PKG_CONFIG_SYSROOT_DIR=/", "PKG_CONFIG_ALLOW_SYSTEM_LIBS=1"]
+
+# Doesn't work
+# [target.x86_64-unknown-linux-musl]
+# pre-build = [
+#   "dpkg --add-architecture $CROSS_DEB_ARCH",
+#   "ln -s /usr/share/zoneinfo/Europe/Belgrade /etc/localtime",
+#   "apt-get update && apt-get --assume-yes install libwayland-dev:$CROSS_DEB_ARCH libasound2-dev:$CROSS_DEB_ARCH libudev-dev:$CROSS_DEB_ARCH"
+# ]
+# env.passthrough = ["PKG_CONFIG_SYSROOT_DIR=/", "PKG_CONFIG_ALLOW_SYSTEM_LIBS=1"]

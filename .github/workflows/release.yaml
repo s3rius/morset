@@ -13,11 +13,13 @@ jobs:
         platform:
           - os-name: FreeBSD-x86_64
             runs-on: ubuntu-24.04
+            force-use-cross: true
             target: x86_64-unknown-freebsd
 
           - os-name: Linux-x86_64
             runs-on: ubuntu-24.04
-            target: x86_64-unknown-linux-musl
+            force-use-cross: true
+            target: x86_64-unknown-linux-gnu
 
           # - os-name: Linux-aarch64
           #   runs-on: ubuntu-24.04
@@ -29,6 +31,7 @@ jobs:
 
           - os-name: Windows-x86_64
             runs-on: windows-latest
+            force-use-cross: false
             target: x86_64-pc-windows-msvc
 
           # - os-name: macOS-x86_64
@@ -44,10 +47,9 @@ jobs:
         with:
           command: build
           target: ${{ matrix.platform.target }}
+          force-use-cross: ${{ matrix.platform.force-use-cross }}
           args: "--locked --release"
           strip: true
-        env:
-          PKG_CONFIG_SYSROOT_DIR: "/"
       - name: Publish artifacts and release
         uses: houseabsolute/actions-rust-release@v0
         with:
