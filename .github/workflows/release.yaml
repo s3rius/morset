@@ -40,6 +40,11 @@ jobs:
             force-use-cross: false
             target: x86_64-apple-darwin
 
+          - os-name: macOS-arm
+            runs-on: macOS-latest
+            force-use-cross: false
+            target: aarch64-apple-darwin
+
     runs-on: ${{ matrix.platform.runs-on }}
     steps:
       - name: Checkout
