@@ -1,0 +1,7 @@
+[target.x86_64-unknown-linux-gnu]
+image = "registry.gitlab.steamos.cloud/steamrt/soldier/sdk:latest"
+pre-build = [
+  "dpkg --add-architecture $CROSS_DEB_ARCH",
+  "apt-get update",
+  "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+]

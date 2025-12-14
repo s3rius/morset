@@ -40,7 +40,7 @@ pub const NUMBERS: [(char, &'static str); 10] = [
     ('0', "-----"),
 ];
 
-pub const SIGNS: [(char, &'static str); 9] = [
+pub const SIGNS: [(char, &'static str); 11] = [
     ('.', ".-.-.-"),
     ('!', "-.-.--"),
     ('\'', ".----."),
@@ -50,6 +50,8 @@ pub const SIGNS: [(char, &'static str); 9] = [
     ('-', "-....-"),
     ('(', "-.--.-"),
     (')', "-.--."),
+    ('@', ".--.-."),
+    ('&', ".-..."),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
