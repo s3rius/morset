@@ -54,6 +54,5 @@ jobs:
         uses: houseabsolute/actions-rust-release@v0
         with:
           executable-name: morset
-          release-tag-prefix: ""
           changes-file: ""
           target: ${{ matrix.platform.target }}
