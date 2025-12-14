@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{ops::Div, time::Duration};
 
 use bevy::prelude::*;
 use bevy_egui::{
@@ -55,6 +55,7 @@ pub struct WritingState {
     timer: Timer,
     ticks: usize,
     pressed: bool,
+    cheat_sheet_open: bool,
 
     /// User settings
     frequency: usize,
@@ -120,6 +121,7 @@ pub fn startup(mut cmds: Commands) {
         wpm: 10,
         frequency: 550,
         pressed: false,
+        cheat_sheet_open: true,
         volume: 20,
     };
     state.set_wpm(10);
@@ -160,6 +162,8 @@ pub fn egui_menus(mut contexts: EguiContexts, mut state: ResMut<WritingState>) -
                         ("F4", "Increase frequency"),
                         ("F5", "Decrease volume"),
                         ("F6", "Increase volume"),
+                        ("C", "Toggle cheat sheet"),
+                        ("Space", "Emit a signal"),
                     ] {
                         ui.horizontal(|ui| {
                             ui.label(format!("{:<8} - {}", key, value));
@@ -200,6 +204,45 @@ pub fn egui_menus(mut contexts: EguiContexts, mut state: ResMut<WritingState>) -
             ui.label(egui::RichText::new(format!("{}{}|", state.text, buff)).size(32.));
         });
     });
+
+    // Cheat sheet with
+    egui::Window::new("Cheatsheet")
+        .collapsible(true)
+        .open(&mut state.cheat_sheet_open)
+        .collapsible(false)
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                let codes = crate::consts::ABC
+                    .iter()
+                    .chain(crate::consts::NUMBERS.iter())
+                    .chain(crate::consts::SIGNS.iter())
+                    .collect::<Vec<_>>();
+                let middle = codes.len().div(2);
+
+                ui.vertical(|ui| {
+                    for (id, (ch, seq)) in codes.iter().enumerate() {
+                        if id <= middle {
+                            ui.label(
+                                RichText::new(format!("{}: {}", ch, seq))
+                                    .monospace()
+                                    .size(20.),
+                            );
+                        }
+                    }
+                });
+                ui.vertical(|ui| {
+                    for (id, (ch, seq)) in codes.iter().enumerate() {
+                        if id > middle {
+                            ui.label(
+                                RichText::new(format!("{}: {}", ch, seq))
+                                    .monospace()
+                                    .size(20.),
+                            );
+                        }
+                    }
+                });
+            });
+        });
     Ok(())
 }
 
@@ -336,5 +379,7 @@ pub fn controls(
         state.buffer.clear();
     } else if keys.just_pressed(KeyCode::Escape) {
         app_state.set(AppState::MainMenu);
+    } else if keys.just_pressed(KeyCode::KeyC) {
+        state.cheat_sheet_open = !state.cheat_sheet_open;
     }
 }

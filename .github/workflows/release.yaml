@@ -7,6 +7,8 @@ on:
 
 jobs:
   release:
+    permissions:
+      contents: write
     name: Release - ${{ matrix.platform.os-name }}
     strategy:
       matrix:
@@ -34,9 +36,9 @@ jobs:
             force-use-cross: false
             target: x86_64-pc-windows-msvc
 
-          # - os-name: macOS-x86_64
-          #   runs-on: macOS-latest
-          #   target: x86_64-apple-darwin
+          - os-name: macOS-x86_64
+            runs-on: macOS-latest
+            target: x86_64-apple-darwin
 
     runs-on: ${{ matrix.platform.runs-on }}
     steps:
@@ -50,7 +52,7 @@ jobs:
           force-use-cross: ${{ matrix.platform.force-use-cross }}
           args: "--locked --release"
           strip: true
-      - name: Publish artifacts and release
+      - name: Publish artifacts
         uses: houseabsolute/actions-rust-release@v0
         with:
           executable-name: morset
