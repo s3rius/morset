@@ -4,34 +4,14 @@ This project is intended for creating a playground where you can practice your C
 
 Here's an example of what it looks like:
 
-<div>
-    <video src="https://github.com/user-attachments/assets/843e957f-220c-4a24-861a-028926e47258"></video>
-</div>
-
-We also support paddle mode (it allows you to emit signals continuosly while holding paddle keys):
-
-<div>
-    <video src="https://github.com/user-attachments/assets/9e3b9386-c9ec-43e5-8f66-8e6a7698270d"></video>
-</div>
+<img align="center" width="939" height="1001" alt="image" src="https://github.com/user-attachments/assets/5597981d-aa85-46bd-a44d-01f5005d0961" />
 
 
 ### Installation
 
-To install this project, simpy run 
-
-```bash
-cargo install --git https://github.com/s3rius/morset.git
-```
+You can download this project from [releases page](https://github.com/s3rius/morset/releases).
 
 
-Then you can simply run morset with no arguments. 
+### Local development
 
-```bash
-morset
-```
-
-In case if you want to change preferences, please take a look at our help.
-
-```bash
-morset --help
-```
+To speedup project builds, run cargo builds with feature local, like `cargo run --features=local`. It will enably bevy's dynamic_linking feature, which significantly reduces build times.
