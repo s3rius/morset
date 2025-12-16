@@ -1,8 +1,5 @@
-use bevy::prelude::*;
-
-#[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppState {
-    #[default]
     MainMenu,
     Listening,
     Writing,

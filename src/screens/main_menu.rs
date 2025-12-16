@@ -1,41 +1,43 @@
-use bevy::{log::tracing, prelude::*};
-use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+use egui::{self, RichText};
 
 use crate::state::AppState;
 
-pub struct MainMenuPlugin;
+pub struct MainMenuScreen;
 
-impl Plugin for MainMenuPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_systems(
-            EguiPrimaryContextPass,
-            setup_egui_main_menu.run_if(in_state(AppState::MainMenu)),
-        );
+impl MainMenuScreen {
+    pub fn new() -> Self {
+        Self
     }
-}
-
-fn setup_egui_main_menu(
-    mut contexts: EguiContexts,
-    mut state: ResMut<NextState<AppState>>,
-    mut exit_writer: MessageWriter<AppExit>,
-) -> Result {
-    let ctx = contexts.ctx_mut()?;
-    egui::CentralPanel::default().show(ctx, |ui| {
-        ui.vertical_centered_justified(|ui| {
-            ui.group(|ui| {
-                if ui.button("Writing").clicked() {
-                    tracing::info!("Starting writing");
-                    state.set(AppState::Writing);
-                }
-                // if ui.button("Listening").clicked() {
-                //     tracing::info!("Starting listening");
-                //     state.set(AppState::Writing);
-                // }
-                if ui.button("Exit").clicked() {
-                    exit_writer.write(AppExit::Success);
-                }
+    
+    /// Render the main menu and return the new state if changed
+    pub fn render(&mut self, ctx: &egui::Context) -> Option<AppState> {
+        let mut new_state = None;
+        
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical_centered_justified(|ui| {
+                ui.add_space(200.0);
+                
+                ui.heading(RichText::new("MORSET").size(48.0));
+                ui.add_space(20.0);
+                ui.label("Morse Code Practice");
+                ui.add_space(40.0);
+                
+                ui.group(|ui| {
+                    if ui.button(RichText::new("Writing").size(24.0)).clicked() {
+                        new_state = Some(AppState::Writing);
+                    }
+                    
+                    if ui.button(RichText::new("Listening").size(24.0)).clicked() {
+                        new_state = Some(AppState::Listening);
+                    }
+                    
+                    if ui.button(RichText::new("Exit").size(24.0)).clicked() {
+                        std::process::exit(0);
+                    }
+                });
             });
         });
-    });
-    Ok(())
+        
+        new_state
+    }
 }
