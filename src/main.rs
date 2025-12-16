@@ -25,7 +25,7 @@ impl MorsetApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         // Initialize audio manager
         let audio = AudioManager::new(550.0, 0.2).ok();
-        
+
         Self {
             state: AppState::MainMenu,
             audio,
@@ -41,7 +41,7 @@ impl eframe::App for MorsetApp {
         let now = Instant::now();
         let delta = now.duration_since(self.last_update);
         self.last_update = now;
-        
+
         match self.state {
             AppState::MainMenu => {
                 if let Some(new_state) = self.main_menu.render(ctx) {
@@ -73,7 +73,7 @@ impl eframe::App for MorsetApp {
                 });
             }
         }
-        
+
         // Request continuous repaint for smooth updates
         ctx.request_repaint();
     }
@@ -86,7 +86,8 @@ fn main() -> eframe::Result<()> {
             .with_title("MORSET"),
         ..Default::default()
     };
-    
+    tracing_subscriber::fmt().init();
+
     eframe::run_native(
         "MORSET",
         options,
