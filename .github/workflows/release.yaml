@@ -1,9 +1,7 @@
 name: "Release package"
 
 on:
-  release:
-    types:
-      - released
+  push:
 
 jobs:
   release:
@@ -58,9 +56,9 @@ jobs:
           force-use-cross: ${{ matrix.platform.force-use-cross }}
           args: "--locked --release"
           strip: true
-      - name: Publish artifacts
-        uses: houseabsolute/actions-rust-release@v0
-        with:
-          executable-name: morset
-          changes-file: ""
-          target: ${{ matrix.platform.target }}
+      # - name: Publish artifacts
+      #   uses: houseabsolute/actions-rust-release@v0
+      #   with:
+      #     executable-name: morset
+      #     changes-file: ""
+      #     target: ${{ matrix.platform.target }}
