@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use crate::{
     audio::AudioManager,
+    inputs::InputStateExt,
     state::AppState,
     utils::{morse_to_char, wpm_to_dit_duration},
 };
@@ -139,13 +140,15 @@ impl WritingScreen {
             }
 
             // Handle space key for morse code
-            if i.key_pressed(Key::Space) {
+            if i.key_just_pressed(Key::Space) {
+                tracing::info!("Space pressed");
                 self.pressed = true;
                 self.reset_timer();
                 if let Some(audio) = audio {
                     audio.play();
                 }
             } else if i.key_released(Key::Space) {
+                tracing::info!("Space released");
                 self.pressed = false;
                 if let Some(audio) = audio {
                     audio.pause();
