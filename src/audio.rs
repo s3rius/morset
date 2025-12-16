@@ -61,11 +61,11 @@ impl AudioManager {
         if (self.frequency - frequency).abs() < 0.1 {
             return; // No significant change
         }
-        tracing::info!("Updating frequency to {}", frequency);
+        tracing::debug!("Updating frequency to {}", frequency);
 
         self.frequency = frequency;
-        self.sink.skip_one();
         self.sink.append(SineWave::new(frequency));
+        self.sink.skip_one();
 
         // Note: Frequency changes require recreating the source, which isn't supported here
     }

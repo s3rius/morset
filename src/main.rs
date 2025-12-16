@@ -5,6 +5,7 @@ use std::time::Instant;
 
 mod audio;
 mod consts;
+mod inputs;
 mod screens;
 mod state;
 mod utils;
