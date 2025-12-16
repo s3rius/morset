@@ -1,7 +1,6 @@
-mod listening;
 mod main_menu;
 mod writing_screen;
+mod listening;
 
-pub use main_menu::MainMenuPlugin;
-pub use writing_screen::WritingScreenPlugin;
-pub use listening::ListeningScreenPlugin;
+pub use main_menu::MainMenuScreen;
+pub use writing_screen::WritingScreen;

@@ -1,4 +1,6 @@
-pub const ABC: [(char, &'static str); 26] = [
+use std::fmt;
+
+pub const ABC: [(char, &str); 26] = [
     ('A', ".-"),
     ('B', "-..."),
     ('C', "-.-."),
@@ -27,7 +29,7 @@ pub const ABC: [(char, &'static str); 26] = [
     ('Z', "--.."),
 ];
 
-pub const NUMBERS: [(char, &'static str); 10] = [
+pub const NUMBERS: [(char, &str); 10] = [
     ('1', ".----"),
     ('2', "..---"),
     ('3', "...--"),
@@ -40,7 +42,7 @@ pub const NUMBERS: [(char, &'static str); 10] = [
     ('0', "-----"),
 ];
 
-pub const SIGNS: [(char, &'static str); 11] = [
+pub const SIGNS: [(char, &str); 11] = [
     ('.', ".-.-.-"),
     ('!', "-.-.--"),
     ('\'', ".----."),
@@ -55,6 +57,7 @@ pub const SIGNS: [(char, &'static str); 11] = [
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(clippy::upper_case_acronyms)]
 pub(crate) enum ProSign {
     AA,  // New line
     AR,  // End of message
@@ -68,24 +71,24 @@ pub(crate) enum ProSign {
     ERR, // Errorneous Transmission
 }
 
-impl ToString for ProSign {
-    fn to_string(&self) -> String {
+impl fmt::Display for ProSign {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ProSign::AA => String::from("<AA>\n"),
-            ProSign::AR => String::from("<AR> (End of Message)"),
-            ProSign::CT => String::from("<CT> (Start Copying)"),
-            ProSign::DO => String::from("<DO> (Change to WABUN Code)"),
-            ProSign::KA => String::from("<KA> (Invitation to Transmit)"),
-            ProSign::KN => String::from("<KN> (Invitation to Transmit to Specific Station)"),
-            ProSign::SK => String::from("<SK> (End of Contact)"),
-            ProSign::SN => String::from("<SN> (Understood)"),
-            ProSign::SOS => String::from("SOS (Distress Signal)"),
-            ProSign::ERR => String::from("<ERR> (Erroneous Transmission)"),
+            ProSign::AA => writeln!(f, "<AA>"),
+            ProSign::AR => write!(f, "<AR> (End of Message)"),
+            ProSign::CT => write!(f, "<CT> (Start Copying)"),
+            ProSign::DO => write!(f, "<DO> (Change to WABUN Code)"),
+            ProSign::KA => write!(f, "<KA> (Invitation to Transmit)"),
+            ProSign::KN => write!(f, "<KN> (Invitation to Transmit to Specific Station)"),
+            ProSign::SK => write!(f, "<SK> (End of Contact)"),
+            ProSign::SN => write!(f, "<SN> (Understood)"),
+            ProSign::SOS => write!(f, "SOS (Distress Signal)"),
+            ProSign::ERR => write!(f, "<ERR> (Erroneous Transmission)"),
         }
     }
 }
 
-pub const PROSIGNS: [(ProSign, &'static str); 10] = [
+pub const PROSIGNS: [(ProSign, &str); 10] = [
     (ProSign::AA, ".-.-"),
     (ProSign::AR, ".-.-."),
     (ProSign::CT, "-.-.-"),
