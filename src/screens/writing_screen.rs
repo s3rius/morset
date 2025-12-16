@@ -1,5 +1,5 @@
+use egui::{self, Key, RichText};
 use std::time::Duration;
-use egui::{self, RichText, Key};
 
 use crate::{
     audio::AudioManager,
@@ -11,7 +11,7 @@ pub static MAX_WPM: u8 = 40;
 pub static MIN_WPM: u8 = 1;
 
 pub static MAX_FREQUENCY: usize = 1200;
-pub static MIN_FREQUENCY: usize = 100;
+pub static MIN_FREQUENCY: usize = 300;
 
 pub static MAX_VOLUME: usize = 100;
 pub static MIN_VOLUME: usize = 0;
@@ -38,7 +38,7 @@ impl WritingScreen {
     pub fn new() -> Self {
         let wpm = 10;
         let dit_duration = wpm_to_dit_duration(wpm);
-        
+
         Self {
             text: String::new(),
             buffer: Vec::new(),
@@ -62,21 +62,20 @@ impl WritingScreen {
     /// Progress the timer and see if value has been updated.
     fn tick(&mut self, delta: Duration) -> Option<usize> {
         self.elapsed += delta;
-        
+
         while self.elapsed >= self.dit_duration {
             self.elapsed -= self.dit_duration;
             if self.ticks < 7 {
                 self.ticks += 1;
             }
         }
-        
+
         if self.ticks > 0 {
             Some(self.ticks)
         } else {
             None
         }
     }
-
 
     /// This function just verifies that all values are within bounds.
     fn normalize_values(&mut self) {
@@ -118,12 +117,12 @@ impl WritingScreen {
             } else if i.key_pressed(Key::F3) {
                 self.frequency = self.frequency.saturating_sub(50);
                 if let Some(audio) = audio {
-                    let _ = audio.set_frequency(self.frequency as f32);
+                    audio.set_frequency(self.frequency as f32);
                 }
             } else if i.key_pressed(Key::F4) {
                 self.frequency = self.frequency.saturating_add(50);
                 if let Some(audio) = audio {
-                    let _ = audio.set_frequency(self.frequency as f32);
+                    audio.set_frequency(self.frequency as f32);
                 }
             } else if i.key_pressed(Key::F5) {
                 self.volume = self.volume.saturating_sub(5);
@@ -138,7 +137,7 @@ impl WritingScreen {
             } else if i.key_pressed(Key::C) {
                 self.cheat_sheet_open = !self.cheat_sheet_open;
             }
-            
+
             // Handle space key for morse code
             if i.key_pressed(Key::Space) {
                 self.pressed = true;
@@ -151,7 +150,7 @@ impl WritingScreen {
                 if let Some(audio) = audio {
                     audio.pause();
                 }
-                
+
                 // Add dot or dash based on how long it was pressed
                 if self.ticks <= 1 {
                     self.buffer.push('.');
@@ -163,7 +162,7 @@ impl WritingScreen {
         });
 
         // Render UI
-        self.render_ui(ctx);
+        self.render_ui(ctx, audio);
 
         new_state
     }
@@ -195,7 +194,7 @@ impl WritingScreen {
         }
     }
 
-    fn render_ui(&mut self, ctx: &egui::Context) {
+    fn render_ui(&mut self, ctx: &egui::Context, audio: &mut Option<AudioManager>) {
         // Top panel with ticks
         egui::TopBottomPanel::top("Ticks").show(ctx, |ui| {
             ui.centered_and_justified(|ui| {
@@ -240,17 +239,26 @@ impl WritingScreen {
                         });
                         ui.horizontal(|ui| {
                             ui.label("Frequency:");
-                            ui.add(egui::Slider::new(
+                            let frequency = ui.add(egui::Slider::new(
                                 &mut self.frequency,
                                 MIN_FREQUENCY..=MAX_FREQUENCY,
                             ));
+                            if let Some(audio) = audio {
+                                if frequency.changed() {
+                                    audio.set_frequency(self.frequency as f32);
+                                }
+                            }
                         });
                         ui.horizontal(|ui| {
                             ui.label("Volume:");
-                            ui.add(egui::Slider::new(
-                                &mut self.volume,
-                                MIN_VOLUME..=MAX_VOLUME,
-                            ));
+                            let volume = ui
+                                .add(egui::Slider::new(&mut self.volume, MIN_VOLUME..=MAX_VOLUME));
+
+                            if let Some(audio) = audio {
+                                if volume.changed() {
+                                    audio.set_volume(self.volume as f32 * 0.01);
+                                }
+                            }
                         });
                     });
                 });
