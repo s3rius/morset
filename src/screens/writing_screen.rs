@@ -141,14 +141,14 @@ impl WritingScreen {
 
             // Handle space key for morse code
             if i.key_just_pressed(Key::Space) {
-                tracing::info!("Space pressed");
+                tracing::debug!("Start emitting wave");
                 self.pressed = true;
                 self.reset_timer();
                 if let Some(audio) = audio {
                     audio.play();
                 }
             } else if i.key_released(Key::Space) {
-                tracing::info!("Space released");
+                tracing::debug!("Stop emitting wave");
                 self.pressed = false;
                 if let Some(audio) = audio {
                     audio.pause();
