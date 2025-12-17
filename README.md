@@ -2,6 +2,8 @@
 
 This project is intended for creating a playground where you can practice your CW communication skills.
 
+Live demo: https://s3rius.github.io/morset/
+
 Here's an example of what it looks like:
 
 <img align="center" width="939" height="1001" alt="image" src="https://github.com/user-attachments/assets/5597981d-aa85-46bd-a44d-01f5005d0961" />
