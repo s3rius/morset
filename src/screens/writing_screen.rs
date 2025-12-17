@@ -272,32 +272,6 @@ impl WritingScreen {
             ui.vertical_centered(|ui| {
                 let buff = self.buffer.iter().collect::<String>();
                 ui.label(egui::RichText::new(format!("{}{}|", self.text, buff)).size(32.));
-                #[cfg(target_arch = "wasm32")]
-                {
-                    let btn = ui.button("EMIT sound");
-                    if btn.is_pointer_button_down_on() {
-                        if !self.pressed {
-                            self.pressed = true;
-                            if let Some(audio) = audio {
-                                audio.play();
-                            }
-                            self.reset_timer();
-                        }
-                    } else {
-                        if self.pressed {
-                            self.pressed = false;
-                            if let Some(audio) = audio {
-                                audio.pause();
-                            }
-                            if self.ticks <= 1 {
-                                self.buffer.push('.');
-                            } else {
-                                self.buffer.push('-');
-                            }
-                            self.reset_timer();
-                        }
-                    }
-                }
             });
         });
 
