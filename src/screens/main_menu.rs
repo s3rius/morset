@@ -31,6 +31,7 @@ impl MainMenuScreen {
                         new_state = Some(AppState::Listening);
                     }
 
+                    #[cfg(not(target_arch = "wasm32"))]
                     if ui.button(RichText::new("Exit").size(24.0)).clicked() {
                         std::process::exit(0);
                     }
