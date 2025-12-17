@@ -64,3 +64,17 @@ jobs:
           executable-name: morset
           changes-file: ""
           target: ${{ matrix.platform.target }}
+
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup wasm32 toolchain
+        run: |
+          rustup install stable
+          rustup target add wasm32-unknown-unknown
+      - name: Install trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+      - name: Build
+        run: trunk build --release
