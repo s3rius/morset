@@ -17,10 +17,19 @@ pub static MIN_FREQUENCY: usize = 300;
 pub static MAX_VOLUME: usize = 100;
 pub static MIN_VOLUME: usize = 0;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyerMode {
+    IambicA,
+    IambicB,
+    Straight,
+}
+
 pub struct WritingScreen {
     // Display state
     text: String,
     buffer: Vec<char>,
+
+    keyer_mode: KeyerMode,
 
     // Private state
     elapsed: Duration,
@@ -46,9 +55,10 @@ impl WritingScreen {
             elapsed: Duration::ZERO,
             ticks: 0,
             wpm,
+            keyer_mode: KeyerMode::Straight,
             frequency: 550,
             pressed: false,
-            cheat_sheet_open: true,
+            cheat_sheet_open: false,
             volume: 20,
             dit_duration,
         }
@@ -138,16 +148,15 @@ impl WritingScreen {
             } else if i.key_pressed(Key::C) {
                 self.cheat_sheet_open = !self.cheat_sheet_open;
             }
-
             // Handle space key for morse code
-            if i.key_just_pressed(Key::Space) {
+            else if self.keyer_mode == KeyerMode::Straight && i.key_just_pressed(Key::Space) {
                 tracing::debug!("Start emitting wave");
                 self.pressed = true;
                 self.reset_timer();
                 if let Some(audio) = audio {
                     audio.play();
                 }
-            } else if i.key_released(Key::Space) {
+            } else if self.keyer_mode == KeyerMode::Straight && i.key_released(Key::Space) {
                 tracing::debug!("Stop emitting wave");
                 self.pressed = false;
                 if let Some(audio) = audio {
@@ -212,19 +221,28 @@ impl WritingScreen {
             ui.vertical_centered(|ui| {
                 ui.label("Controls:");
                 ui.horizontal(|ui| {
+                    let mut controls = [
+                        ("Esc", "Return to Main Menu"),
+                        ("Bksp", "Clear text"),
+                        ("F1", "Decrease WPM"),
+                        ("F2", "Increase WPM"),
+                        ("F3", "Decrease frequency"),
+                        ("F4", "Increase frequency"),
+                        ("F5", "Decrease volume"),
+                        ("F6", "Increase volume"),
+                        ("C", "Toggle cheat sheet"),
+                    ]
+                    .to_vec();
+                    match self.keyer_mode {
+                        KeyerMode::IambicA | KeyerMode::IambicB => {
+                            controls.extend_from_slice(&[("[", "Send dit"), ("]", "Send dash")]);
+                        }
+                        KeyerMode::Straight => {
+                            controls.push(("Space", "Send Morse Code"));
+                        }
+                    }
                     ui.vertical(|ui| {
-                        for (key, value) in [
-                            ("Esc", "Return to Main Menu"),
-                            ("Bksp", "Clear text"),
-                            ("F1", "Decrease WPM"),
-                            ("F2", "Increase WPM"),
-                            ("F3", "Decrease frequency"),
-                            ("F4", "Increase frequency"),
-                            ("F5", "Decrease volume"),
-                            ("F6", "Increase volume"),
-                            ("C", "Toggle cheat sheet"),
-                            ("Space", "Emit a signal"),
-                        ] {
+                        for (key, value) in controls {
                             ui.horizontal(|ui| {
                                 ui.label(format!("{:<8} - {}", key, value));
                             });
@@ -262,6 +280,32 @@ impl WritingScreen {
                                 }
                             }
                         });
+                        ui.horizontal(|ui| {
+                            ui.label("Cheat sheet:");
+                            ui.checkbox(&mut self.cheat_sheet_open, "");
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Keyer Mode:");
+                            egui::ComboBox::from_id_salt("keyer_mode")
+                                .selected_text(format!("{:?}", self.keyer_mode))
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut self.keyer_mode,
+                                        KeyerMode::Straight,
+                                        "Straight",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.keyer_mode,
+                                        KeyerMode::IambicA,
+                                        "Iambic A",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.keyer_mode,
+                                        KeyerMode::IambicB,
+                                        "Iambic B",
+                                    );
+                                });
+                        })
                     });
                 });
             });
