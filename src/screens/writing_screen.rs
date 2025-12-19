@@ -24,6 +24,88 @@ pub enum KeyerMode {
     Straight,
 }
 
+pub enum IambicKey {
+    Dot,
+    Dash,
+}
+
+#[derive(Default)]
+pub struct IambicScheduler {
+    dot_presed: bool,
+    dash_pressed: bool,
+    queue: Vec<IambicKey>,
+    stop_at: Option<usize>,
+}
+
+impl IambicScheduler {
+    pub fn press_key(&mut self, key: IambicKey) {
+        unimplemented!()
+    }
+    pub fn release_key(&mut self, key: IambicKey) {
+        unimplemented!()
+    }
+    pub fn emit_signal(&self, tick: usize) -> bool {
+        unimplemented!()
+    }
+
+    pub fn any_active(&self) -> bool {
+        self.dot_presed || self.dash_pressed
+    }
+}
+
+/// Main structure that
+/// tracks the timing of Morse code elements.
+#[derive(Default, Debug)]
+pub struct Ticker {
+    pub ticks: usize,
+    pub dit_duration: Duration,
+    elapsed: Duration,
+    was_reset: bool,
+}
+
+impl Ticker {
+    pub fn new(dit_duration: Duration) -> Self {
+        Self {
+            dit_duration,
+            ..Default::default()
+        }
+    }
+
+    /// Reset the ticker to zero ticks.
+    pub fn reset(&mut self) {
+        tracing::debug!("Ticker reset scheduled");
+        self.was_reset = true;
+        self.ticks = 0;
+        self.elapsed = Duration::ZERO;
+    }
+
+    /// Advance the ticker by delta time.
+    ///
+    /// Returns Some(new_ticks) if the tick count has changed,
+    /// or None if it remains the same.
+    pub fn tick(&mut self, delta: Duration) -> Option<usize> {
+        let was_reset = self.was_reset;
+        self.was_reset = false;
+        self.elapsed += delta;
+
+        let old_ticks = self.ticks;
+        while self.elapsed >= self.dit_duration {
+            self.elapsed -= self.dit_duration;
+            if self.ticks < 7 {
+                self.ticks += 1;
+            }
+        }
+
+        // If it was reset, then we guarantee a tick update.
+        // Because it's a new cycle.
+        if was_reset || old_ticks != self.ticks {
+            Some(self.ticks)
+        } else {
+            None
+        }
+    }
+}
+
 pub struct WritingScreen {
     // Display state
     text: String,
@@ -32,8 +114,7 @@ pub struct WritingScreen {
     keyer_mode: KeyerMode,
 
     // Private state
-    elapsed: Duration,
-    ticks: usize,
+    ticker: Ticker,
     pressed: bool,
     cheat_sheet_open: bool,
 
@@ -41,7 +122,6 @@ pub struct WritingScreen {
     frequency: usize,
     volume: usize,
     wpm: u8,
-    dit_duration: Duration,
 }
 
 impl WritingScreen {
@@ -52,39 +132,13 @@ impl WritingScreen {
         Self {
             text: String::new(),
             buffer: Vec::new(),
-            elapsed: Duration::ZERO,
-            ticks: 0,
+            ticker: Ticker::new(dit_duration),
             wpm,
             keyer_mode: KeyerMode::Straight,
             frequency: 550,
             pressed: false,
             cheat_sheet_open: false,
             volume: 20,
-            dit_duration,
-        }
-    }
-
-    /// Reset the timer and tick count.
-    fn reset_timer(&mut self) {
-        self.elapsed = Duration::ZERO;
-        self.ticks = 0;
-    }
-
-    /// Progress the timer and see if value has been updated.
-    fn tick(&mut self, delta: Duration) -> Option<usize> {
-        self.elapsed += delta;
-
-        while self.elapsed >= self.dit_duration {
-            self.elapsed -= self.dit_duration;
-            if self.ticks < 7 {
-                self.ticks += 1;
-            }
-        }
-
-        if self.ticks > 0 {
-            Some(self.ticks)
-        } else {
-            None
         }
     }
 
@@ -94,9 +148,9 @@ impl WritingScreen {
         self.frequency = self.frequency.clamp(MIN_FREQUENCY, MAX_FREQUENCY);
         self.volume = self.volume.clamp(MIN_VOLUME, MAX_VOLUME);
         let dit_duration = wpm_to_dit_duration(self.wpm);
-        if self.dit_duration != dit_duration {
-            self.dit_duration = dit_duration;
-            self.reset_timer();
+        if self.ticker.dit_duration != dit_duration {
+            self.ticker.dit_duration = dit_duration;
+            self.ticker.reset();
         }
     }
 
@@ -152,7 +206,7 @@ impl WritingScreen {
             else if self.keyer_mode == KeyerMode::Straight && i.key_just_pressed(Key::Space) {
                 tracing::debug!("Start emitting wave");
                 self.pressed = true;
-                self.reset_timer();
+                self.ticker.reset();
                 if let Some(audio) = audio {
                     audio.play();
                 }
@@ -163,12 +217,12 @@ impl WritingScreen {
                     audio.pause();
                 }
                 // Add dot or dash based on how long it was pressed
-                if self.ticks <= 1 {
+                if self.ticker.ticks <= 2 {
                     self.buffer.push('.');
                 } else {
                     self.buffer.push('-');
                 }
-                self.reset_timer();
+                self.ticker.reset();
             }
         });
 
@@ -179,9 +233,10 @@ impl WritingScreen {
     }
 
     fn handle_timers(&mut self, delta: Duration) {
-        let Some(tick) = self.tick(delta) else {
+        let Some(tick) = self.ticker.tick(delta) else {
             return;
         };
+        tracing::debug!("Tick advanced to {}", tick);
 
         // If the key is being pressed, do not do anything.
         if self.pressed {
@@ -210,7 +265,7 @@ impl WritingScreen {
         egui::TopBottomPanel::top("Ticks").show(ctx, |ui| {
             ui.centered_and_justified(|ui| {
                 let ticks_info = (1..=7)
-                    .map(|i| if i <= self.ticks { '+' } else { '-' })
+                    .map(|i| if i <= self.ticker.ticks { '+' } else { '-' })
                     .collect::<String>();
                 ui.label(RichText::new(ticks_info).size(25.));
             });
