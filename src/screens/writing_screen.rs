@@ -24,6 +24,12 @@ pub enum KeyerMode {
     Straight,
 }
 
+impl KeyerMode {
+    pub fn is_iambic(&self) -> bool {
+        matches!(self, KeyerMode::IambicA | KeyerMode::IambicB)
+    }
+}
+
 pub enum IambicKey {
     Dot,
     Dash,
@@ -38,14 +44,10 @@ pub struct IambicScheduler {
 }
 
 impl IambicScheduler {
-    pub fn press_key(&mut self, key: IambicKey) {
-        unimplemented!()
-    }
-    pub fn release_key(&mut self, key: IambicKey) {
-        unimplemented!()
-    }
-    pub fn emit_signal(&self, tick: usize) -> bool {
-        unimplemented!()
+    pub fn press_key(&mut self, key: IambicKey) {}
+    pub fn release_key(&mut self, key: IambicKey) {}
+    pub fn handle_tick(&self, tick: usize) -> Option<char> {
+        None
     }
 
     pub fn any_active(&self) -> bool {
@@ -115,6 +117,7 @@ pub struct WritingScreen {
 
     // Private state
     ticker: Ticker,
+    iambic_scheduler: IambicScheduler,
     pressed: bool,
     cheat_sheet_open: bool,
 
@@ -133,6 +136,7 @@ impl WritingScreen {
             text: String::new(),
             buffer: Vec::new(),
             ticker: Ticker::new(dit_duration),
+            iambic_scheduler: IambicScheduler::default(),
             wpm,
             keyer_mode: KeyerMode::Straight,
             frequency: 550,
@@ -162,9 +166,6 @@ impl WritingScreen {
         audio: &mut Option<AudioManager>,
     ) -> Option<AppState> {
         let mut new_state = None;
-
-        // Handle timing
-        self.handle_timers(delta);
 
         // Handle input
         ctx.input(|i| {
@@ -223,8 +224,19 @@ impl WritingScreen {
                     self.buffer.push('-');
                 }
                 self.ticker.reset();
+            } else if self.keyer_mode.is_iambic() && i.key_just_pressed(Key::OpenBracket) {
+                self.iambic_scheduler.press_key(IambicKey::Dot);
+            } else if self.keyer_mode.is_iambic() && i.key_just_pressed(Key::CloseBracket) {
+                self.iambic_scheduler.press_key(IambicKey::Dash);
+            } else if self.keyer_mode.is_iambic() && i.key_released(Key::OpenBracket) {
+                self.iambic_scheduler.release_key(IambicKey::Dot);
+            } else if self.keyer_mode.is_iambic() && i.key_released(Key::CloseBracket) {
+                self.iambic_scheduler.release_key(IambicKey::Dash);
             }
         });
+
+        // Handle timing
+        self.handle_timers(delta);
 
         // Render UI
         self.render_ui(ctx, audio);
@@ -237,6 +249,10 @@ impl WritingScreen {
             return;
         };
         tracing::debug!("Tick advanced to {}", tick);
+
+        if self.keyer_mode.is_iambic() {
+            self.iambic_scheduler.handle_tick(tick);
+        }
 
         // If the key is being pressed, do not do anything.
         if self.pressed {
