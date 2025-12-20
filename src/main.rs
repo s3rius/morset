@@ -1,11 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use eframe::egui;
+
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
+mod args;
 mod audio;
 mod consts;
 mod inputs;
@@ -85,13 +87,21 @@ impl eframe::App for MorsetApp {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
+    use clap::Parser;
+
+    let args = args::Args::parse();
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 720.0])
             .with_title("MORSET"),
         ..Default::default()
     };
-    tracing_subscriber::fmt().init();
+    tracing_subscriber::fmt()
+        .with_max_level(args.log_level)
+        .with_line_number(true)
+        .with_file(true)
+        .init();
 
     eframe::run_native(
         "MORSET",

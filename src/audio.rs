@@ -43,6 +43,7 @@ impl AudioManager {
     /// Start playing the tone
     pub fn play(&mut self) {
         if !self.is_playing {
+            tracing::debug!("Playing audio");
             self.sink.play();
             self.is_playing = true;
         }
@@ -51,6 +52,7 @@ impl AudioManager {
     /// Stop playing the tone
     pub fn pause(&mut self) {
         if self.is_playing {
+            tracing::debug!("Pausing audio");
             self.sink.pause();
             self.is_playing = false;
         }
@@ -72,6 +74,7 @@ impl AudioManager {
 
     /// Update the volume
     pub fn set_volume(&mut self, volume: f32) {
+        tracing::debug!("Updating volume to {}", volume);
         self.volume = volume;
         self.sink.set_volume(volume);
     }
