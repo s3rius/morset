@@ -1,5 +1,9 @@
 use egui::{self, Key, RichText};
-use std::time::Duration;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{Duration, Instant};
+#[cfg(target_arch = "wasm32")]
+use web_time::{Duration, Instant};
 
 use crate::{
     audio::AudioManager,
@@ -35,23 +39,135 @@ pub enum IambicKey {
     Dash,
 }
 
-#[derive(Default)]
+#[derive(Debug)]
 pub struct IambicScheduler {
-    dot_presed: bool,
-    dash_pressed: bool,
-    queue: Vec<IambicKey>,
-    stop_at: Option<usize>,
+    dot_next_tick: Option<usize>,
+    dash_next_tick: Option<usize>,
+
+    dot_last_press: Instant,
+    dash_last_press: Instant,
+
+    // This value indicates that user has released a key
+    // But we want to continue playing sequence
+    // Even after release
+    dot_released: bool,
+    dash_released: bool,
+}
+
+impl Default for IambicScheduler {
+    fn default() -> Self {
+        Self {
+            dot_next_tick: Default::default(),
+            dash_next_tick: Default::default(),
+            dot_last_press: Instant::now(),
+            dash_last_press: Instant::now(),
+            dot_released: false,
+            dash_released: false,
+        }
+    }
 }
 
 impl IambicScheduler {
-    pub fn press_key(&mut self, key: IambicKey) {}
-    pub fn release_key(&mut self, key: IambicKey) {}
-    pub fn handle_tick(&self, tick: usize) -> Option<char> {
-        None
+    pub fn press_key(&mut self, key: IambicKey, tick: usize) {
+        match key {
+            IambicKey::Dot => {
+                self.dot_released = false;
+                // Dot is already scheduled
+                if self.dot_next_tick.is_some() {
+                    return;
+                }
+                self.dot_last_press = Instant::now();
+
+                // If dash is also pressed, schedule dot after dash + inter-element space
+                // wrapping around 8 ticks
+                if self.dash_next_tick.is_some() {
+                    self.dot_next_tick =
+                        Some(self.dash_next_tick.map(|t| (t + 4) % 8).unwrap_or(tick));
+                }
+                // Otherwise, schedule dot immediately
+                else {
+                    self.dot_next_tick = Some(tick);
+                }
+            }
+            IambicKey::Dash => {
+                self.dash_released = false;
+                // dash is already scheduled
+                if self.dash_next_tick.is_some() {
+                    return;
+                }
+                self.dash_last_press = Instant::now();
+
+                // If dot is also pressed, schedule dash after dot + inter-element space
+                // wrapping around 8 ticks
+                if self.dot_next_tick.is_some() {
+                    self.dash_next_tick =
+                        Some(self.dot_next_tick.map(|t| (t + 2) % 8).unwrap_or(tick));
+                }
+                // Otherwise, schedule dash immediately
+                else {
+                    self.dash_next_tick = Some(tick);
+                }
+            }
+        }
+    }
+    pub fn release_key(&mut self, key: IambicKey) {
+        match key {
+            IambicKey::Dot => {
+                self.dot_released = true;
+            }
+            IambicKey::Dash => {
+                self.dash_released = true;
+            }
+        }
+    }
+
+    pub fn handle_tick(&mut self, tick: usize, audio: Option<&mut AudioManager>) -> Option<char> {
+        tracing::info!(
+            "Iambic Scheduler Tick: {}, dot_next: {:?}, dash_next: {:?}",
+            tick,
+            self.dot_next_tick,
+            self.dash_next_tick
+        );
+        if self.dot_next_tick.map(|t| (t + 1) % 8) == Some(tick) {
+            if self.dot_released {
+                self.dot_next_tick = None;
+            } else {
+                if self.dash_next_tick.is_some() {
+                    self.dot_next_tick = Some((tick + 4) % 8);
+                } else {
+                    self.dot_next_tick = Some((tick + 1) % 8)
+                }
+            }
+            if let Some(audio) = audio {
+                audio.pause();
+            }
+            Some('.')
+        } else if self.dash_next_tick.map(|t| (t + 3) % 8) == Some(tick) {
+            if self.dash_released {
+                self.dash_next_tick = None;
+            } else {
+                if self.dot_next_tick.is_some() {
+                    self.dash_next_tick = Some((tick + 2) % 8);
+                } else {
+                    self.dash_next_tick = Some((tick + 1) % 8)
+                }
+            }
+            if let Some(audio) = audio {
+                audio.pause();
+            }
+            Some('-')
+        } else {
+            if self.any_active() {
+                if let Some(audio) = audio {
+                    audio.play();
+                }
+            }
+            None
+        }
     }
 
     pub fn any_active(&self) -> bool {
-        self.dot_presed || self.dash_pressed
+        self.dash_next_tick.is_some() || self.dot_next_tick.is_some()
     }
 }
 
@@ -63,6 +179,7 @@ pub struct Ticker {
     pub dit_duration: Duration,
     elapsed: Duration,
     was_reset: bool,
+    wrap: bool,
 }
 
 impl Ticker {
@@ -95,6 +212,8 @@ impl Ticker {
             self.elapsed -= self.dit_duration;
             if self.ticks < 7 {
                 self.ticks += 1;
+            } else if self.wrap {
+                self.ticks = 0;
             }
         }
 
@@ -156,6 +275,7 @@ impl WritingScreen {
             self.ticker.dit_duration = dit_duration;
             self.ticker.reset();
         }
+        self.ticker.wrap = self.keyer_mode.is_iambic();
     }
 
     /// Update the screen and return new state if changed
@@ -202,6 +322,12 @@ impl WritingScreen {
                 }
             } else if i.key_pressed(Key::C) {
                 self.cheat_sheet_open = !self.cheat_sheet_open;
+            } else if i.key_pressed(Key::M) {
+                self.keyer_mode = match self.keyer_mode {
+                    KeyerMode::Straight => KeyerMode::IambicA,
+                    KeyerMode::IambicA => KeyerMode::IambicB,
+                    KeyerMode::IambicB => KeyerMode::Straight,
+                };
             }
             // Handle space key for morse code
             else if self.keyer_mode == KeyerMode::Straight && i.key_just_pressed(Key::Space) {
@@ -225,9 +351,17 @@ impl WritingScreen {
                 }
                 self.ticker.reset();
             } else if self.keyer_mode.is_iambic() && i.key_just_pressed(Key::OpenBracket) {
-                self.iambic_scheduler.press_key(IambicKey::Dot);
+                if !self.iambic_scheduler.any_active() {
+                    self.ticker.reset();
+                }
+                self.iambic_scheduler
+                    .press_key(IambicKey::Dot, self.ticker.ticks);
             } else if self.keyer_mode.is_iambic() && i.key_just_pressed(Key::CloseBracket) {
-                self.iambic_scheduler.press_key(IambicKey::Dash);
+                if !self.iambic_scheduler.any_active() {
+                    self.ticker.reset();
+                }
+                self.iambic_scheduler
+                    .press_key(IambicKey::Dash, self.ticker.ticks);
             } else if self.keyer_mode.is_iambic() && i.key_released(Key::OpenBracket) {
                 self.iambic_scheduler.release_key(IambicKey::Dot);
             } else if self.keyer_mode.is_iambic() && i.key_released(Key::CloseBracket) {
@@ -236,7 +370,15 @@ impl WritingScreen {
         });
 
         // Handle timing
-        self.handle_timers(delta);
+        let tick = self.handle_timers(delta);
+
+        if let Some(tick) = tick
+            && self.keyer_mode.is_iambic()
+        {
+            if let Some(ch) = self.iambic_scheduler.handle_tick(tick, audio.as_mut()) {
+                self.buffer.push(ch);
+            }
+        }
 
         // Render UI
         self.render_ui(ctx, audio);
@@ -244,19 +386,15 @@ impl WritingScreen {
         new_state
     }
 
-    fn handle_timers(&mut self, delta: Duration) {
+    fn handle_timers(&mut self, delta: Duration) -> Option<usize> {
         let Some(tick) = self.ticker.tick(delta) else {
-            return;
+            return None;
         };
         tracing::debug!("Tick advanced to {}", tick);
 
-        if self.keyer_mode.is_iambic() {
-            self.iambic_scheduler.handle_tick(tick);
-        }
-
         // If the key is being pressed, do not do anything.
-        if self.pressed {
-            return;
+        if self.pressed || (self.keyer_mode.is_iambic() && self.iambic_scheduler.any_active()) {
+            return Some(tick);
         }
 
         if tick == 3 {
@@ -274,6 +412,7 @@ impl WritingScreen {
         } else if tick == 7 && !self.text.is_empty() && !self.text.ends_with(' ') {
             self.text.push(' ');
         }
+        Some(tick)
     }
 
     fn render_ui(&mut self, ctx: &egui::Context, audio: &mut Option<AudioManager>) {
@@ -301,6 +440,7 @@ impl WritingScreen {
                         ("F4", "Increase frequency"),
                         ("F5", "Decrease volume"),
                         ("F6", "Increase volume"),
+                        ("M", "Switch keyer mode"),
                         ("C", "Toggle cheat sheet"),
                     ]
                     .to_vec();
